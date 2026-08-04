@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SubagentExitPayload",
+  "description": "Standardized JSON schema required for subagent task completion in Surgical Orchestration",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["COMPLETED", "FAILED"],
+      "description": "Whether the subagent successfully completed its mission"
+    },
+    "files_modified": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of file paths modified during the mission, relative to the allowed scope"
+    },
+    "debrief": {
+      "type": "string",
+      "description": "Concise summary of changes made, trade-offs, and verification steps"
+    },
+    "self_audit": {
+      "type": "string",
+      "description": "Answer to: 'Is that the best I could do following best practices?'"
+    }
+  },
+  "required": ["status", "files_modified", "debrief", "self_audit"],
+  "additionalProperties": false
+}
