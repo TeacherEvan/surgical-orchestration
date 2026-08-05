@@ -1,6 +1,9 @@
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import { EventEmitter } from 'node:events';
+import { exec } from 'node:child_process';
+import { assertScopeBoundary } from './security.js';
+import { computeDebriefHash, type DebriefPayload } from './debrief.js';
 
 // ============================================================================
 // Technical Specifications & System Limits
@@ -37,6 +40,17 @@ export interface SubagentResult {
   selfAudit: string;
 }
 
+/**
+ * Injectable subagent dispatch strategy. The library ships no runtime of its
+ * own: a host (Hermes `delegate_task`, a child process, a test double) supplies
+ * this. Injection — not subclassing — is the extension point, because the
+ * previous shape forced consumers to monkeypatch a private method through `any`.
+ */
+export type SubagentDispatcher = (
+  agentId: string,
+  payload: SubagentPayload,
+) => Promise<SubagentResult>;
+
 export interface FolderJob {
   id: string;
   parentFolder: string;
@@ -44,6 +58,8 @@ export interface FolderJob {
   attempts: number;
   assignedWorkerId?: string;
   assignedVerifierId?: string;
+  /** Verifier's rejection reason, fed into the next Worker attempt. */
+  lastVerifierFeedback?: string;
   debriefHistory: Array<{
     attempt: number;
     agentRole: AgentRole;
@@ -60,70 +76,39 @@ export interface JobCard {
 }
 
 // ============================================================================
-// 1. Tool-Layer Directory Sandbox Guard
+// 1. Tool-Layer Directory Sandbox Guard (delegates to security.ts)
 // ============================================================================
 
-export class SecurityGuard {
-  /**
-   * Hard path assertion wrapper. Throws error if target path escapes allowed scope.
-   * Prevents prompt-based boundary violations from becoming actual file access.
-   */
-  static assertScopeBoundary(targetPath: string, allowedScope: string, agentId: string): void {
-    const absTarget = path.resolve(targetPath);
-    const absScope = path.resolve(allowedScope);
-
-    const relative = path.relative(absScope, absTarget);
-    const isInside = !relative.startsWith('..') && !path.isAbsolute(relative);
-
-    if (!isInside && absTarget !== absScope) {
-      throw new Error(
-        `[SECURITY_VIOLATION] Subagent '${agentId}' attempted unauthorized path access: '${targetPath}'. Locked Scope: '${allowedScope}'`
-      );
-    }
-  }
-
-  /**
-   * Validates that a file path is within the allowed directory subtree.
-   * Use before any file read/write/list operation in subagents.
-   */
-  static validateAccess(agentId: string, targetPath: string, allowedScope: string): boolean {
-    try {
-      this.assertScopeBoundary(targetPath, allowedScope, agentId);
-      return true;
-    } catch (err) {
-      console.error(err);
-      return false;
-    }
-  }
+/**
+ * Segment-aware "is `child` inside `parent`?" test. Plain string prefix
+ * comparison is wrong here: 'src/authz'.startsWith('src/auth') is true.
+ *
+ * This is a pure planning-time predicate. It does NOT resolve symlinks and is
+ * NOT a security boundary — use assertScopeBoundary() from './security.js' for
+ * anything that gates real file access.
+ */
+export function isInsideFolder(child: string, parent: string): boolean {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 // ============================================================================
-// 2. Anti-Loop Debrief Hashing
+// 2. Anti-Loop Debrief Hashing (delegates to debrief.ts)
 // ============================================================================
 
-export class LoopGuard {
-  /**
-   * Generates SHA-256 hash of a debrief payload.
-   * Used to detect duplicate work and prevent infinite loops.
-   */
-  static hashDebrief(debrief: string): string {
-    return crypto.createHash('sha256').update(debrief, 'utf-8').digest('hex');
-  }
+/**
+ * Checks if a debrief hash has already been seen.
+ * If a duplicate is found, the subagent branch should be terminated.
+ */
+export function loopGuardIsDuplicateHash(hash: string, completedHashes: Set<string>): boolean {
+  return completedHashes.has(hash);
+}
 
-  /**
-   * Checks if a debrief hash has already been seen.
-   * If a duplicate is found, the subagent branch should be terminated.
-   */
-  static isDuplicateHash(hash: string, completedHashes: Set<string>): boolean {
-    return completedHashes.has(hash);
-  }
-
-  /**
-   * Records a debrief hash for future loop detection.
-   */
-  static recordHash(hash: string, completedHashes: Set<string>): void {
-    completedHashes.add(hash);
-  }
+/**
+ * Records a debrief hash for future loop detection.
+ */
+export function loopGuardRecordHash(hash: string, completedHashes: Set<string>): void {
+  completedHashes.add(hash);
 }
 
 // ============================================================================
@@ -145,12 +130,15 @@ export class ContextCompactor {
     for (const [jobId, job] of jobCard.jobs) {
       const latestDebrief = job.debriefHistory[job.debriefHistory.length - 1];
       if (job.status === 'VERIFIED' && latestDebrief) {
-        const hashSig = LoopGuard.hashDebrief(latestDebrief.debrief);
+        // Reuse the hash already computed at dispatch time. Recomputing it from
+        // the debrief string produced a DIFFERENT digest than the registry
+        // entry, so the ledger advertised hashes that loop detection never
+        // matched on.
         ledger.completedChecks.push({
           folder: job.parentFolder,
-          hash: hashSig.substring(0, 8),
+          hash: latestDebrief.hash.substring(0, 8),
         });
-        ledger.debriefHashes.push(hashSig);
+        ledger.debriefHashes.push(latestDebrief.hash);
       } else {
         ledger.activeJobs.push({
           jobId,
@@ -190,13 +178,36 @@ export interface CompactLedger {
 // 4. Subagent Manager — Spawning & Lifecycle
 // ============================================================================
 
+/**
+ * Fail-closed default. A manager constructed without a dispatcher refuses to
+ * run rather than silently returning fabricated "COMPLETED" debriefs, which
+ * would poison the hash registry and mark unverified folders as VERIFIED.
+ */
+const defaultDispatcher: SubagentDispatcher = async (agentId) => {
+  throw new Error(
+    `[NO_DISPATCHER] Subagent runtime not configured for '${agentId}'. ` +
+      'Pass a SubagentDispatcher to the OrchestrationEngine/SubagentManager constructor ' +
+      '(e.g. one that calls Hermes delegate_task).',
+  );
+};
+
 export class SubagentManager extends EventEmitter {
   private activeAgents: Map<string, { role: AgentRole; startTime: number }> = new Map();
   private jobCard: JobCard;
+  private dispatch: SubagentDispatcher;
 
-  constructor(jobCard: JobCard) {
+  constructor(jobCard: JobCard, dispatch?: SubagentDispatcher) {
     super();
     this.jobCard = jobCard;
+    this.dispatch = dispatch ?? defaultDispatcher;
+  }
+
+  /**
+   * Replaces the dispatch strategy after construction (e.g. a host wiring in
+   * `delegate_task` once its runtime is ready).
+   */
+  setDispatcher(dispatch: SubagentDispatcher): void {
+    this.dispatch = dispatch;
   }
 
   /**
@@ -225,24 +236,33 @@ export class SubagentManager extends EventEmitter {
     const agentId = `agent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     this.activeAgents.set(agentId, { role: payload.role, startTime: Date.now() });
 
-    // Validate scope boundary before spawning
-    SecurityGuard.assertScopeBoundary(payload.allowedFolderScope, payload.allowedFolderScope, agentId);
+    // Validate the scope itself is a real, resolvable directory before handing
+    // it to an agent. (This deliberately no longer compares the scope to
+    // itself — that assertion was a tautology and could never fail. Per-file
+    // enforcement is assertScopeBoundary(file, scope) at the tool layer.)
+    assertScopeBoundary(payload.allowedFolderScope, payload.allowedFolderScope, agentId);
 
-    // Set timeout watchdog
-    const timeoutId = setTimeout(() => {
-      this.emit('agent_timeout', agentId);
-      this.terminateAgent(agentId, 'TIMEOUT');
-    }, ORCHESTRATOR_CONFIG.SUBAGENT_TIMEOUT_MS);
+    // Timeout watchdog. The dispatcher wins or the deadline wins, whichever
+    // settles first — previously the timer only emitted an event while the
+    // orchestrator stayed blocked on a dispatcher that may never return.
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        this.emit('agent_timeout', agentId);
+        this.terminateAgent(agentId, 'TIMEOUT');
+        reject(
+          new Error(
+            `[TIMEOUT] Subagent '${agentId}' exceeded ${ORCHESTRATOR_CONFIG.SUBAGENT_TIMEOUT_MS}ms.`,
+          ),
+        );
+      }, ORCHESTRATOR_CONFIG.SUBAGENT_TIMEOUT_MS);
+    });
 
     try {
-      // In production, this would dispatch to an actual subagent runtime
-      // For now, emit the spawn event for the runtime to handle
       this.emit('spawn_requested', { agentId, payload });
 
-      // Simulate subagent execution (replace with actual agent dispatch)
-      const result: SubagentResult = await this.executeSubagent(agentId, payload);
+      const result = await Promise.race([this.dispatch(agentId, payload), deadline]);
 
-      // Clean up
       clearTimeout(timeoutId);
       this.activeAgents.delete(agentId);
       this.emit('agent_completed', { agentId, result });
@@ -263,28 +283,19 @@ export class SubagentManager extends EventEmitter {
     this.activeAgents.delete(agentId);
     this.emit('agent_terminated', { agentId, reason });
   }
-
-  /**
-   * Executes the subagent — override this in production with real agent dispatch.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async executeSubagent(_agentId: string, _payload: SubagentPayload): Promise<SubagentResult> {
-    // Production implementation would integrate with Hermes subagent runtime
-    // This is a placeholder that should be replaced
-    throw new Error('Subagent runtime not configured. Override executeSubagent() with actual agent dispatch.');
-  }
 }
 
 // ============================================================================
 // 5. Orchestration Engine — State Machine
 // ============================================================================
 
-export class OrchestrationEngine {
+export class OrchestrationEngine extends EventEmitter {
   private jobCard: JobCard;
-  private manager: SubagentManager;
+  protected manager: SubagentManager;
   private plan: BuildPlan;
 
-  constructor(plan: BuildPlan) {
+  constructor(plan: BuildPlan, dispatch?: SubagentDispatcher) {
+    super();
     this.plan = plan;
     this.jobCard = {
       planId: `BUILD-${Date.now()}`,
@@ -292,8 +303,15 @@ export class OrchestrationEngine {
       completedHashes: new Set(),
       overallStatus: 'IN_PROGRESS',
     };
-    this.manager = new SubagentManager(this.jobCard);
+    this.manager = new SubagentManager(this.jobCard, dispatch);
     this.initializeJobCard(plan);
+  }
+
+  /**
+   * Swaps in a dispatch strategy after construction.
+   */
+  setDispatcher(dispatch: SubagentDispatcher): void {
+    this.manager.setDispatcher(dispatch);
   }
 
   /**
@@ -321,11 +339,11 @@ export class OrchestrationEngine {
     const folders = new Set<string>();
     for (const change of plan.changes) {
       const parent = path.dirname(change.filePath);
-      // Get the top-level parent directory (e.g., ./src/components/auth -> ./src/components)
-      const parts = parent.split(path.sep);
-      if (parts.length >= 2) {
-        folders.add(parts.slice(0, 2).join(path.sep));
-      }
+      // Use the immediate parent directory as the job scope.  A previous
+      // version took parts.slice(0, 2), which silently dropped single-segment
+      // parents (path.dirname("README.md") === ".", path.dirname("src/a.ts")
+      // === "src") — those files were invisible to the orchestrator.
+      folders.add(parent || '.');
     }
     return Array.from(folders);
   }
@@ -334,10 +352,28 @@ export class OrchestrationEngine {
    * Runs the full orchestration pipeline.
    */
   async run(): Promise<OrchestrationResult> {
-    // Step 1: Dispatch Worker-Verifier loop for each folder
-    for (const [jobId, job] of this.jobCard.jobs) {
-      await this.executeJobLoop(jobId, job);
-    }
+    // Step 1: Dispatch Worker-Verifier loops in parallel, limited to
+    // MAX_CONCURRENCY concurrent jobs.  Each job has at most one active
+    // agent at a time (worker OR verifier), so the total active agents
+    // never exceeds MAX_CONCURRENCY.
+    //
+    // The previous version used a sequential for-await loop, which meant
+    // MAX_CONCURRENCY was dead code — only one agent was ever active.
+    const jobEntries = Array.from(this.jobCard.jobs.entries());
+    const limit = ORCHESTRATOR_CONFIG.MAX_CONCURRENCY;
+    let next = 0;
+    const runNext = async (): Promise<void> => {
+      while (next < jobEntries.length) {
+        const idx = next++;
+        const [jobId, job] = jobEntries[idx];
+        await this.executeJobLoop(jobId, job);
+      }
+    };
+    const runners = Array.from(
+      { length: Math.min(limit, jobEntries.length) },
+      () => runNext(),
+    );
+    await Promise.all(runners);
 
     // Step 2: Compact context
     const ledger = ContextCompactor.compact(this.jobCard);
@@ -377,15 +413,24 @@ export class OrchestrationEngine {
       };
 
       const workerResult = await this.manager.spawnSubagent(workerPayload);
-      const workerHash = LoopGuard.hashDebrief(workerResult.debrief);
+      // Hash the CANONICAL payload (scope + sorted file list + debrief), not the
+      // bare debrief string. Hashing the string alone made two different folders
+      // that happened to emit the same sentence collide, escalating a healthy
+      // job as a "loop".
+      const workerHash = computeDebriefHash({
+        directory: job.parentFolder,
+        modifiedFiles: workerResult.filesModified,
+        diffHash: workerResult.debrief,
+        errorSignature: workerResult.status === 'FAILED' ? workerResult.selfAudit : '',
+      });
 
-      // Check for duplicate hash (loop detection)
-      if (LoopGuard.isDuplicateHash(workerHash, this.jobCard.completedHashes)) {
+      // Loop detection: an identical payload for this same scope means the
+      // worker redid the exact same work, so another cycle cannot help.
+      if (loopGuardIsDuplicateHash(workerHash, this.jobCard.completedHashes)) {
         job.status = 'ESCALATED';
-        this.jobCard.completedHashes.add(workerHash);
         return;
       }
-      LoopGuard.recordHash(workerHash, this.jobCard.completedHashes);
+      loopGuardRecordHash(workerHash, this.jobCard.completedHashes);
 
       job.debriefHistory.push({
         attempt: job.attempts + 1,
@@ -408,16 +453,16 @@ export class OrchestrationEngine {
 
       if (verifierResult.status === 'COMPLETED') {
         job.status = 'VERIFIED';
-        this.jobCard.completedHashes.add(workerHash);
         return;
-      } else {
-        job.attempts++;
-        if (job.attempts >= ORCHESTRATOR_CONFIG.MAX_REVISION_CYCLES) {
-          job.status = 'ESCALATED';
-          return;
-        }
-        // Retry with verifier feedback
       }
+
+      job.attempts++;
+      job.lastVerifierFeedback = verifierResult.debrief;
+      if (job.attempts >= ORCHESTRATOR_CONFIG.MAX_REVISION_CYCLES) {
+        job.status = 'ESCALATED';
+        return;
+      }
+      // else: loop again, and buildWorkerInstructions() will carry the feedback
     }
 
     job.status = 'ESCALATED';
@@ -427,9 +472,16 @@ export class OrchestrationEngine {
    * Builds Worker instructions from the build plan.
    */
   private buildWorkerInstructions(job: FolderJob, plan: BuildPlan): string {
-    const relevantChanges = plan.changes.filter(
-      (c) => path.dirname(c.filePath).startsWith(job.parentFolder)
+    // Segment-aware containment. `startsWith` alone matched sibling folders
+    // whose name merely shares a prefix (scope `src/auth` swallowing
+    // `src/authz`), leaking out-of-scope changes into a locked mission.
+    const relevantChanges = plan.changes.filter((c) =>
+      isInsideFolder(path.dirname(c.filePath), job.parentFolder),
     );
+
+    const feedback = job.lastVerifierFeedback
+      ? `\nVerifier feedback from attempt ${job.attempts} (address this first):\n${job.lastVerifierFeedback}\n`
+      : '';
 
     return `## Worker Mission: ${job.id}
 
@@ -437,7 +489,7 @@ Scope: ${job.parentFolder}
 
 Changes required:
 ${relevantChanges.map((c) => `- ${c.filePath}: ${c.description}`).join('\n')}
-
+${feedback}
 Principles:
 1. FOLLOWING BEST PRACTICES
 2. IS THAT THE BEST YOU CAN DO?
@@ -448,11 +500,16 @@ Exit protocol: Emit JSON with status, files_modified, debrief, self_audit.`;
   /**
    * Builds Verifier instructions for reviewing Worker output.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private buildVerifierInstructions(job: FolderJob, _workerResult: SubagentResult): string {
+  private buildVerifierInstructions(job: FolderJob, workerResult: SubagentResult): string {
     return `## Verifier Mission: ${job.id}
 
 Review the Worker's changes in scope: ${job.parentFolder}
+
+Worker debrief:
+${workerResult.debrief}
+
+Files modified:
+${workerResult.filesModified.map((f) => `- ${f}`).join('\n')}
 
 Check:
 1. All changes follow best practices
@@ -466,21 +523,118 @@ Exit protocol: Emit JSON with status (COMPLETED|FAILED), files_modified, debrief
   /**
    * Runs Playwright tests against the modified codebase.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private async runPlaywrightTests(_ledger: CompactLedger): Promise<TestResult> {
-    // Production: execute `npx playwright test` in the project root
-    // Return { passed: boolean, trace?: string, failureLog?: string }
-    throw new Error('Playwright test runner not configured.');
+    const projectRoot = this.plan.changes[0]?.filePath ? path.dirname(this.plan.changes[0].filePath) : process.cwd();
+    // Navigate to project root (find package.json)
+    let root = projectRoot;
+    while (root !== path.parse(root).root && !fs.existsSync(path.join(root, 'package.json'))) {
+      root = path.dirname(root);
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        exec('npx playwright test', {
+          cwd: root,
+          timeout: 120000,
+        }, (error: Error | null) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      return { passed: true };
+    } catch (error: any) {
+      const failureLog = error.stdout?.toString() || error.stderr?.toString() || error.message;
+      return {
+        passed: false,
+        trace: failureLog,
+        failureLog,
+        failingSpecs: this.extractFailingSpecs(failureLog)
+      };
+    }
   }
 
   /**
-   * Spawns a Test-Fixer subagent with need-to-know scope only.
+   * Extracts failing spec file paths from Playwright output.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async spawnTestFixer(_testResult: TestResult, _ledger: CompactLedger): Promise<SubagentResult> {
-    // Test-Fixer receives ONLY: test failure trace + failing spec + README.md + ARCHITECTURE DIAGRAM
-    // Must report back and immediately die.
-    throw new Error('Test-Fixer not configured.');
+  private extractFailingSpecs(output: string): string[] {
+    const specs = new Set<string>();
+    // Match patterns like "spec.ts:123" or "test.spec.ts - failed"
+    const patterns = [
+      /([\w/.-]+\.spec\.(ts|js)):?\d*/g,
+      /([\w/.-]+\.test\.(ts|js)):?\d*/g
+    ];
+    for (const pattern of patterns) {
+      const matches = output.matchAll(pattern);
+      for (const match of matches) {
+        specs.add(match[1]);
+      }
+    }
+    return Array.from(specs);
+  }
+
+  /**
+   * Spawns a Test-Fixer subagent with need-to-know scope only, routed through
+   * the injected SubagentDispatcher — not a hardcoded stub.
+   */
+  private async spawnTestFixer(testResult: TestResult, ledger: CompactLedger): Promise<SubagentResult> {
+    const projectRoot = this.findProjectRoot();
+    const readme = this.readIfExists(path.join(projectRoot, 'README.md'));
+    const archDiagram = this.readArchitectureDiagram(projectRoot);
+
+    const context = `
+TEST FAILURE CONTEXT:
+Trace: ${testResult.trace?.substring(0, 8000)}
+Failing Specs: ${testResult.failingSpecs?.join(', ')}
+
+PROJECT CONTEXT:
+README: ${readme?.substring(0, 4000)}
+ARCHITECTURE: ${archDiagram?.substring(0, 4000)}
+
+COMPACTED LEDGER:
+${JSON.stringify(ledger, null, 2)}
+`.trim();
+
+    this.emit('test_fixer_requested', { context });
+
+    const testFixerPayload: SubagentPayload = {
+      missionId: 'TEST-FIXER',
+      role: 'TEST_FIXER',
+      allowedFolderScope: projectRoot,
+      instructions: context,
+      contextSummary: JSON.stringify(ledger),
+    };
+
+    return this.manager.spawnSubagent(testFixerPayload);
+  }
+
+  private findProjectRoot(): string {
+    let root = process.cwd();
+    while (root !== path.parse(root).root && !fs.existsSync(path.join(root, 'package.json'))) {
+      root = path.dirname(root);
+    }
+    return root;
+  }
+
+  private readIfExists(filePath: string): string | null {
+    try {
+      return fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      return null;
+    }
+  }
+
+  private readArchitectureDiagram(projectRoot: string): string | null {
+    const candidates = [
+      'ARCHITECTURE.md',
+      'docs/architecture.md',
+      'docs/ARCHITECTURE.md',
+      'architecture.md'
+    ];
+    for (const candidate of candidates) {
+      const content = this.readIfExists(path.join(projectRoot, candidate));
+      if (content) return content;
+    }
+    return null;
   }
 }
 
@@ -511,16 +665,6 @@ export interface TestResult {
   failingSpecs?: string[];
 }
 
-// ============================================================================
-// CLI Entry Point
-// ============================================================================
-
-if (require.main === module) {
-  console.log('Surgical Orchestration Engine');
-  console.log('Usage: Integrate this module into your Hermes subagent runtime.');
-  console.log('Configuration:');
-  console.log(`  MAX_CONCURRENCY: ${ORCHESTRATOR_CONFIG.MAX_CONCURRENCY}`);
-  console.log(`  MAX_REVISION_CYCLES: ${ORCHESTRATOR_CONFIG.MAX_REVISION_CYCLES}`);
-  console.log(`  SUBAGENT_TIMEOUT_MS: ${ORCHESTRATOR_CONFIG.SUBAGENT_TIMEOUT_MS}`);
-  console.log(`  COMPACTION_TOKEN_THRESHOLD: ${ORCHESTRATOR_CONFIG.COMPACTION_TOKEN_THRESHOLD}`);
-}
+// The CLI lives in ./surgical-orchestration.ts — this module is a library and
+// deliberately has no top-level side effects (the previous `require.main` guard
+// was CommonJS-only and unreachable from this ESM module).

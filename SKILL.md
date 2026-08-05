@@ -1,6 +1,6 @@
 ---
 name: surgical-orchestration
-description: "Multi-agent workflow: coordinate subagents across directory boundaries with scope locking, concurrency caps, SHA-256 loop prevention, context compaction, and Playwright test validation."
+description: "Use when coordinating multi-folder subagent builds."
 version: 1.0.0
 author: Hermes Agent (based on Gemini AI architectural review)
 license: MIT
@@ -76,6 +76,10 @@ v
 
 ## Agent Roles
 
+Code map: `OrchestrationEngine` (state machine, one per build plan) owns a
+`SubagentManager` (concurrency cap, timeout watchdog, spawn/terminate events),
+which calls the injected `SubagentDispatcher` to actually run a subagent.
+
 ### 1. Main Orchestrator
 - **Responsibility:** Parses the build plan, initializes the JobCard, spawns scope-limited subagents up to concurrency limit $C_{\\max} = 2$, compacts context before spawning, tracks SHA-256 debrief hashes, and runs integration tests.
 - **Permissions:** Full repository access, process spawning authority, state tracking.
@@ -98,25 +102,27 @@ The Orchestrator maintains state using a lightweight `JobCard` structure:
 
 ```json
 {
-  "planId": "BUILD-2026-0804",
+  "planId": "BUILD-1754380000000",
   "overallStatus": "IN_PROGRESS",
   "jobs": {
     "JOB-001": {
-      "parentFolder": "/src/services/auth",
+      "id": "JOB-001",
+      "parentFolder": "src/services/auth",
       "status": "VERIFICATION_ACTIVE",
       "attempts": 1,
+      "lastVerifierFeedback": "Rotation lacks a test for the expired-token path.",
       "debriefHistory": [
         {
           "attempt": 1,
           "agentRole": "WORKER",
           "debrief": "Implemented JWT rotation and updated session cookies.",
-          "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          "hash": "de387e73f6b851f3fbba6291117bfc19422f637fdfc9e3ee7c270c547cb26649"
         }
       ]
     }
   },
   "completedHashes": [
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "de387e73f6b851f3fbba6291117bfc19422f637fdfc9e3ee7c270c547cb26649"
   ]
 }
 ```
@@ -139,6 +145,17 @@ The Orchestrator maintains state using a lightweight `JobCard` structure:
 5. `VERIFICATION_ACTIVE` → `ESCALATED` (attempts >= 3 or duplicate hash, halt scope)
 
 ## Step-by-Step Execution Protocol
+
+### Step 0: Investigate and write the Blueprint
+
+Before any job exists, produce a compressed blueprint of the codebase — facts
+with `path:line` evidence, an explicit `@DONE` list of things that only *look*
+missing, and gates as literal commands. See
+[Blueprint + Plan format](./references/blueprint-plan-format.md).
+
+This is not ceremony. The `@DONE` section is what stops a subagent rebuilding a
+shipped feature because a grep missed a renamed symbol, and the `@BAN` line is
+the only instruction that travels with every mission envelope.
 
 ### Step 1: Initialization & Plan Parsing
 1. Parse the build plan.
@@ -182,25 +199,22 @@ Before spawning any subagent:
 
 ## Tool-Layer Directory Sandbox
 
-Subagent folder boundaries must be enforced at the runtime tool layer, not merely via prompt instructions. The TypeScript guard:
+Subagent folder boundaries must be enforced at the runtime tool layer, not
+merely via prompt instructions. `assertScopeBoundary(targetPath, allowedScope,
+agentId)` in `references/security.ts` is the single implementation — call it
+before **every** file read/write, with the *file* as `targetPath`.
 
-```typescript
-import * as path from 'path';
+Contract:
 
-export function assertScopeBoundary(targetPath: string, allowedScope: string, agentId: string): void {
-  const absTarget = path.resolve(targetPath);
-  const absScope = path.resolve(allowedScope);
+- Resolves symlinks via `realpath`, falling back to the nearest existing parent
+  for files that do not exist yet. A naive `path.resolve` comparison is
+  bypassable by symlinking out of the scope.
+- Throws `[SECURITY_VIOLATION]` on escape; never returns a boolean the caller
+  can forget to check.
+- `assertScopeBoundary(scope, scope)` is a **tautology** and proves nothing.
+  Boundary checks are per-file.
 
-  const relative = path.relative(absScope, absTarget);
-  const isInside = !relative.startsWith('..') && !path.isAbsolute(relative);
-
-  if (!isInside && absTarget !== absScope) {
-    throw new Error(
-      `[SECURITY_VIOLATION] Subagent '${agentId}' attempted unauthorized path access: '${targetPath}'. Locked Scope: '${allowedScope}'`
-    );
-  }
-}
-```
+The code is deliberately not duplicated here — see `references/security.ts`.
 
 ## Anti-Looping Protocol
 
@@ -288,41 +302,26 @@ Step 6: If tests fail -> Spawn Test-Fix SubAgent (Scope: FAILED TEST TRACE + REA
 
 ## Context Compaction Routine
 
-When context utilization hits 75%, run this state reduction logic before issuing a `spawn_agent` call:
+Before each spawn, reduce the orchestrator's state to the ledger only: strip raw
+stdout, diffs and execution logs; keep the JobCard status table and the verified
+debrief hashes. `ContextCompactor.compact(jobCard)` in `references/orchestrator.ts`
+is the implementation.
 
-```python
-import hashlib
-import json
+Two rules that are easy to get wrong:
 
-def compact_orchestrator_context(job_card: dict, raw_history: list) -> dict:
-    """
-    Strips raw tool outputs and full conversation logs.
-    Retains only state markers, debrief hashes, and active checklists.
-    """
-    compact_ledger = {
-        "active_jobs": [],
-        "completed_checks": [],
-        "debrief_hashes": []
-    }
+- **Never recompute a hash during compaction.** Reuse the digest recorded at
+  dispatch time (`debriefHistory[].hash`). A second computation from the debrief
+  string produces a different digest than the registry holds, so the ledger
+  advertises hashes that loop detection can never match.
+- **The ledger, not the transcript, is what the subagent sees.** It ships in
+  `payload.contextSummary`; anything absent from it is invisible to the worker.
 
-    for item in job_card.get("tasks", []):
-        if item["status"] == "VERIFIED":
-            debrief_bytes = item["debrief_summary"].encode('utf-8')
-            hash_sig = hashlib.sha256(debrief_bytes).hexdigest()
+Rendered form for a mission envelope:
 
-            compact_ledger["completed_checks"].append({
-                "folder": item["parent_folder"],
-                "hash": hash_sig[:8]
-            })
-            compact_ledger["debrief_hashes"].append(hash_sig)
-        else:
-            compact_ledger["active_jobs"].append({
-                "folder": item["parent_folder"],
-                "status": item["status"],
-                "attempts": item["attempts"]
-            })
-
-    return compact_ledger
+```markdown
+### ACTIVE ORCHESTRATION LEDGER
+- [X] Scope: src/components/ui | Status: VERIFIED | Hash: a8f3b912
+- [/] Scope: src/services/auth | Status: WORKER_ACTIVE | Attempt: 1/3
 ```
 
 ## Failure-Mode Decision Matrix
@@ -343,9 +342,109 @@ def compact_orchestrator_context(job_card: dict, raw_history: list) -> dict:
 5. **Execute Playwright tests** once all jobs are `VERIFIED`.
 6. **On test failure**, spawn a Test-Fixer with need-to-know scope only.
 
+## Hermes Integration Guide
+
+The engine is a **library with no subagent runtime of its own**. You supply one
+by passing a `SubagentDispatcher` — injection, not subclassing.
+
+```typescript
+import { OrchestrationEngine, type SubagentDispatcher } from './references/orchestrator.js';
+
+const dispatcher: SubagentDispatcher = async (agentId, payload) => {
+  const results = await delegate_task({
+    goal: payload.instructions,
+    context: `Mission: ${payload.missionId}\nRole: ${payload.role}\nScope: ${payload.allowedFolderScope}\nLedger: ${payload.contextSummary}`,
+    role: 'leaf',
+  });
+  return parseSubagentResult(results[0].summary); // exported by surgical-orchestration.ts
+};
+
+const engine = new OrchestrationEngine(plan, dispatcher);
+const result = await engine.run();
+```
+
+BuildPlan shape:
+
+```json
+{
+  "description": "Add auth + payment features",
+  "changes": [
+    { "filePath": "src/components/auth/LoginForm.tsx", "description": "Add JWT refresh", "type": "modify" },
+    { "filePath": "src/services/payment/StripeClient.ts", "description": "Webhook verification", "type": "add" }
+  ]
+}
+```
+
+Construct the engine with no dispatcher and it throws `[NO_DISPATCHER]` on the
+first spawn. That is deliberate: a stub that returned a synthetic `COMPLETED`
+would be hashed into the loop registry and mark unverified folders `VERIFIED`.
+
+### Verifying a change to this skill
+
+```bash
+cd references
+npx tsc --noEmit --strict --skipLibCheck --module node16 \
+  --moduleResolution node16 --target es2022 --types node *.ts
+npx tsx surgical-orchestration.ts --init
+npx tsx surgical-orchestration.ts --dry-run build-plan.json   # walks the state machine, spawns nothing
+```
+
+`--dry-run` exercises the dispatch loop, ledger compaction and hash registry
+without spending a single subagent.
+
+## Pitfalls (scars, dated)
+
+- **2026-08-05 — the guard that could not fail.** `spawnSubagent` called
+  `assertScopeBoundary(scope, scope)`: a path is always inside itself, so the
+  sandbox assertion was a tautology. Real enforcement is per-FILE
+  (`assertScopeBoundary(file, scope)`) at the tool layer, before each write.
+- **2026-08-05 — prefix matching leaked scope.** Change routing used
+  `dirname(file).startsWith(job.parentFolder)`, so scope `src/auth` swallowed
+  every file in `src/authz`. Use segment-aware `isInsideFolder()`.
+- **2026-08-05 — the loop guard ate healthy jobs.** Hashing the bare debrief
+  *string* meant two different folders emitting the same sentence collided and
+  escalated. Hash the canonical payload (scope + sorted files + debrief).
+  Separately, the ledger recomputed a hash that never matched the registry.
+- **2026-08-05 — the timeout did not time out.** The watchdog `setTimeout` only
+  emitted an event; the orchestrator stayed `await`ing a dispatcher that might
+  never return. The deadline must `reject` and be `Promise.race`d.
+- **2026-08-05 — a spec doc that documented code that did not exist.** A
+  parallel `*-specification.md` pasted 90%+ of the TypeScript inline and named a
+  class (`SurgicalOrchestrator`) absent from the sources. Duplicated code in
+  prose always drifts; the source files are the specification.
+- **2026-08-05 — the concurrency that wasn't.** `run()` used a sequential
+  for-await loop, so `MAX_CONCURRENCY=2` was dead code — only one agent was ever
+  active. The fix uses a worker-pool pattern: `Promise.all` of `limit` runners,
+  each pulling the next job from a shared queue. Each job has at most one active
+  agent (worker OR verifier), so total active agents never exceeds the cap.
+- **2026-08-05 — the verifier reviewed a blank page.** `buildVerifierInstructions`
+  accepted `_workerResult` but never used it (eslint-disabled). The verifier
+  was asked to review work it could not see. The fix inlines the worker's
+  debrief and file list into the verifier prompt.
+- **2026-08-05 — root-level files were invisible.** `extractParentFolders`
+  used `parts.slice(0, 2)`, which dropped single-segment parents —
+  `README.md`, `Makefile`, `src/a.ts` were silently lost. Use the immediate
+  parent directory as the job scope.
+- **2026-08-05 — the test-fixer was a stub.** `spawnTestFixer` emitted an event
+  and returned a hardcoded `FAILED`, bypassing the injected dispatcher. The
+  fix routes a `TEST_FIXER` payload through `spawnSubagent` like every other
+  role.
+- **2026-08-05 — execSync froze the event loop.** `runPlaywrightTests` used
+  `execSync` inside an async method, blocking for up to 120s. The fix uses
+  callback-based `exec` wrapped in a Promise.
+- Verifier feedback is only useful if it reaches the *next* worker attempt —
+  store it on the job (`lastVerifierFeedback`) and inline it into the retry
+  prompt, otherwise all three cycles repeat the same mistake.
+
 ## References
 
-- [TypeScript Runtime](./references/orchestrator.ts) — Production-ready state machine implementation
-- [Orchestrator Prompt](./references/orchestrator-prompt.md) — Main Orchestrator system prompt
-- [Subagent Prompt](./references/subagent-prompt.md) — Worker/Verifier mission envelope template
-- [JobCard Schema](./references/jobcard-schema.json) — JSON schema for state tracking
+- [Blueprint + Plan format](./references/blueprint-plan-format.md) — compressed agent-to-agent plan wire format
+- [Orchestrator runtime](./references/orchestrator.ts) — state machine, dispatcher injection, compaction
+- [Security sandbox](./references/security.ts) — realpath boundary enforcement
+- [Debrief hashing](./references/debrief.ts) — canonical SHA-256 dedup
+- [CLI entry point](./references/surgical-orchestration.ts) — delegate_task dispatcher + `--dry-run`
+- [Orchestrator prompt](./references/orchestrator-prompt.md)
+- [Subagent prompt](./references/subagent-prompt.md)
+- [JobCard schema](./references/jobcard-schema.json) — orchestrator state ledger
+- [Subagent exit schema](./references/subagent-exit-schema.json) — the JSON a subagent must emit
+- [Debrief schema](./references/debrief-schema.json) — canonical hash input
