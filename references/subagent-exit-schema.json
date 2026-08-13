@@ -3,7 +3,8 @@
   "title": "SubagentExitPayload",
   "description": "The JSON a Worker/Verifier/Test-Fixer emits as its final output. The orchestrator parses this and derives the canonical loop-detection hash from it.",
   "type": "object",
-  "required": ["status", "debrief", "self_audit"],
+  "required": ["status", "files_modified", "debrief", "self_audit"],
+  "additionalProperties": false,
   "properties": {
     "status": {
       "type": "string",
@@ -15,11 +16,6 @@
       "items": { "type": "string" },
       "description": "Paths modified, relative to the allowed scope. Sorted into the hash, so order does not matter."
     },
-    "filesModified": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "camelCase alias accepted by parseSubagentResult alongside files_modified."
-    },
     "debrief": {
       "type": "string",
       "description": "Concise changes, trade-offs, verification performed. Must be deterministic: no timestamps, no run ids — non-deterministic text defeats duplicate detection."
@@ -27,10 +23,6 @@
     "self_audit": {
       "type": "string",
       "description": "Answer to: 'Is that the best I could do following best practices?'"
-    },
-    "selfAudit": {
-      "type": "string",
-      "description": "camelCase alias accepted by parseSubagentResult alongside self_audit."
     }
   }
 }

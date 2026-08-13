@@ -1,0 +1,20 @@
+{
+  "description": "Ambiguous-only build plan: 3 documentation files with no clear stack",
+  "changes": [
+    {
+      "filePath": "README.md",
+      "description": "Top-level project overview update",
+      "type": "modify"
+    },
+    {
+      "filePath": "CHANGELOG.md",
+      "description": "Add release notes for v1.3.0",
+      "type": "add"
+    },
+    {
+      "filePath": "docs/notes.txt",
+      "description": "Capture design meeting notes",
+      "type": "add"
+    }
+  ]
+}
