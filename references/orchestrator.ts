@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { exec } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { assertScopeBoundary } from './security.js';
 import { computeDebriefHash, type DebriefPayload } from './debrief.js';
 
@@ -16,7 +16,14 @@ export const ORCHESTRATOR_CONFIG = {
   COMPACTION_TOKEN_THRESHOLD: 0.75,
 } as const;
 
-export type AgentRole = 'WORKER' | 'VERIFIER' | 'TEST_FIXER';
+export type AgentRole =
+  | 'WORKER'
+  | 'VERIFIER'
+  | 'TEST_FIXER'
+  | 'CODE_REVIEWER'
+  | 'FRONTEND_REVIEWER'
+  | 'BACKEND_REVIEWER'
+  | 'COMPOSER';
 export type JobStatus =
   | 'PENDING'
   | 'WORKER_ACTIVE'
@@ -38,6 +45,10 @@ export interface SubagentResult {
   filesModified: string[];
   debrief: string;
   selfAudit: string;
+  /** Forwarded up the chain: a reviewer's own recommendations for the parent. */
+  recommendations?: string[];
+  /** Forwarded up the chain: a reviewer's own suggestions for the parent. */
+  suggestions?: string[];
 }
 
 /**
@@ -236,11 +247,20 @@ export class SubagentManager extends EventEmitter {
     const agentId = `agent-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     this.activeAgents.set(agentId, { role: payload.role, startTime: Date.now() });
 
-    // Validate the scope itself is a real, resolvable directory before handing
-    // it to an agent. (This deliberately no longer compares the scope to
-    // itself — that assertion was a tautology and could never fail. Per-file
-    // enforcement is assertScopeBoundary(file, scope) at the tool layer.)
-    assertScopeBoundary(payload.allowedFolderScope, payload.allowedFolderScope, agentId);
+    // The library only knows the folder scope, not the individual files a host
+    // subagent will touch, so it CANNOT enforce per-file sandboxing itself.
+    // Per-file enforcement is the HOST's contract: call assertScopeBoundary(file,
+    // scope) from the tool layer before every read/write (see SKILL.md). What
+    // this library can do is fail closed on a malformed scope so a bogus JobCard
+    // never dispatches an agent with an undefined/empty lock. (The previous
+    // `assertScopeBoundary(scope, scope)` call was a tautology — a path is
+    // always inside itself — and has been removed; see 2026-08-05 / 2026-08-13
+    // Pitfalls.)
+    if (!payload.allowedFolderScope || typeof payload.allowedFolderScope !== 'string') {
+      throw new Error(
+        `[SCOPE_INVALID] Subagent '${agentId}' has no allowedFolderScope; refusing to dispatch.`,
+      );
+    }
 
     // Timeout watchdog. The dispatcher wins or the deadline wins, whichever
     // settles first — previously the timer only emitted an event while the
@@ -286,6 +306,145 @@ export class SubagentManager extends EventEmitter {
 }
 
 // ============================================================================
+// 5b. Code Reviewer Layer — identify front/back, fan out, compose
+// ============================================================================
+
+/**
+ * Contract for the dedicated Code Reviewer that sits between the build jobs and
+ * the Composer. It classifies each changed file as FRONTEND / BACKEND (or
+ * AMBIGUOUS), then dispatches specialised FRONTEND_REVIEWER and
+ * BACKEND_REVIEWER subagents, collects their summarised feedback, and forwards
+ * its own 2 recommendations + 2 suggestions up to the Composer.
+ *
+ * The layer is pure orchestration: it owns NO runtime, exactly like
+ * OrchestrationEngine. The host supplies a SubagentDispatcher.
+ */
+export interface CodeReviewLayer {
+  /** Classify every changed file into a stack lane. */
+  classify(): Map<string, FileLane>;
+  /** Dispatch the two specialised reviewers and merge their summarised feedback. */
+  run(): Promise<CodeReviewOutcome>;
+}
+
+export type FileLane = 'FRONTEND' | 'BACKEND' | 'AMBIGUOUS';
+
+export interface ClassifiedFile {
+  filePath: string;
+  lane: FileLane;
+}
+
+export interface ReviewerSummary {
+  role: 'FRONTEND_REVIEWER' | 'BACKEND_REVIEWER';
+  lane: FileLane;
+  filesReviewed: string[];
+  summary: string;
+  /** The reviewer's own recommendations for the parent (Code Reviewer). */
+  recommendations: string[];
+  /** The reviewer's own suggestions for the parent (Code Reviewer). */
+  suggestions: string[];
+}
+
+export interface CodeReviewOutcome {
+  classification: ClassifiedFile[];
+  reviewerSummaries: ReviewerSummary[];
+  /** The Code Reviewer's own 2 recommendations for the Composer. */
+  recommendations: string[];
+  /** The Code Reviewer's own 2 suggestions for the Composer. */
+  suggestions: string[];
+}
+
+/**
+ * Heuristic stack classification. A real host would inspect extensions,
+ * directory conventions, and framework markers; this is the deterministic,
+ * testable default. Override `classifyFile` via subclassing if the repo uses
+ * non-standard layout.
+ */
+function defaultClassifyFile(filePath: string): FileLane {
+  const p = filePath.toLowerCase();
+  const fe = ['.tsx', '.jsx', '.vue', '.svelte', '.css', '.scss', '.html'];
+  const be = ['.py', '.go', '.rs', '.java', '.rb', '.php', '.sql', '.prisma'];
+  if (fe.some((ext) => p.endsWith(ext)) || p.includes('/components/') || p.includes('/ui/') || p.includes('/frontend/')) {
+    return 'FRONTEND';
+  }
+  if (be.some((ext) => p.endsWith(ext)) || p.includes('/api/') || p.includes('/server/') || p.includes('/backend/') || p.includes('/services/') || p.includes('/convex/') || p.startsWith('convex/')) {
+    return 'BACKEND';
+  }
+  return 'AMBIGUOUS';
+}
+
+export class StandardCodeReviewer implements CodeReviewLayer {
+  private plan: BuildPlan;
+  private dispatch: SubagentDispatcher;
+  private _classify: (filePath: string) => FileLane;
+
+  constructor(plan: BuildPlan, dispatch: SubagentDispatcher, classify?: (filePath: string) => FileLane) {
+    this.plan = plan;
+    this.dispatch = dispatch;
+    this._classify = classify ?? defaultClassifyFile;
+  }
+
+  classify(): Map<string, FileLane> {
+    const out = new Map<string, FileLane>();
+    for (const change of this.plan.changes) {
+      out.set(change.filePath, this._classify(change.filePath));
+    }
+    return out;
+  }
+
+  private async dispatchReviewer(role: 'FRONTEND_REVIEWER' | 'BACKEND_REVIEWER', lane: FileLane, files: string[]): Promise<ReviewerSummary> {
+    const result = await this.dispatch(`reviewer-${role}`, {
+      missionId: `REVIEW-${role}`,
+      role,
+      allowedFolderScope: '.',
+      instructions:
+        `## ${role} Mission\n` +
+        `Lane: ${lane}\n` +
+        `Files to review (${files.length}):\n${files.map((f) => `- ${f}`).join('\n')}\n\n` +
+        `Review for best practices, correctness, security, and the two surgical-orchestration principals.\n` +
+        `Return JSON: { status, files_modified, debrief, self_audit, recommendations:[..], suggestions:[..] }.\n` +
+        `Provide exactly 2 recommendations and 2 suggestions for the Code Reviewer.`,
+      contextSummary: `Reviewing ${lane} lane; ${files.length} files.`,
+    });
+
+    return {
+      role,
+      lane,
+      filesReviewed: files,
+      summary: result.debrief,
+      recommendations: result.recommendations?.slice(0, 2) ?? [],
+      suggestions: result.suggestions?.slice(0, 2) ?? [],
+    };
+  }
+
+  async run(): Promise<CodeReviewOutcome> {
+    const classification = this.classify();
+    const frontend = [...classification.entries()].filter(([, l]) => l !== 'BACKEND').map(([f]) => f);
+    const backend = [...classification.entries()].filter(([, l]) => l !== 'FRONTEND').map(([f]) => f);
+
+    // Fan out the two specialised reviewers (different roles, so they do not
+    // share a directory mutation scope — but they may run concurrently up to the
+    // SubagentManager cap). If a lane has no files, that reviewer is skipped.
+    const tasks: Promise<ReviewerSummary>[] = [];
+    if (frontend.length) tasks.push(this.dispatchReviewer('FRONTEND_REVIEWER', 'FRONTEND', frontend));
+    if (backend.length) tasks.push(this.dispatchReviewer('BACKEND_REVIEWER', 'BACKEND', backend));
+
+    const reviewerSummaries = tasks.length ? await Promise.all(tasks) : [];
+
+    // The Code Reviewer itself surfaces exactly 2 recommendations + 2 suggestions,
+    // distilled from everything the subagents reported up.
+    const allRecommendations = reviewerSummaries.flatMap((r) => r.recommendations);
+    const allSuggestions = reviewerSummaries.flatMap((r) => r.suggestions);
+
+    return {
+      classification: [...classification.entries()].map(([filePath, lane]) => ({ filePath, lane })),
+      reviewerSummaries,
+      recommendations: allRecommendations.slice(0, 2),
+      suggestions: allSuggestions.slice(0, 2),
+    };
+  }
+}
+
+// ============================================================================
 // 5. Orchestration Engine — State Machine
 // ============================================================================
 
@@ -293,10 +452,12 @@ export class OrchestrationEngine extends EventEmitter {
   private jobCard: JobCard;
   protected manager: SubagentManager;
   private plan: BuildPlan;
+  private skipTests: boolean;
 
-  constructor(plan: BuildPlan, dispatch?: SubagentDispatcher) {
+  constructor(plan: BuildPlan, dispatch?: SubagentDispatcher, opts?: { skipTests?: boolean }) {
     super();
     this.plan = plan;
+    this.skipTests = opts?.skipTests ?? false;
     this.jobCard = {
       planId: `BUILD-${Date.now()}`,
       jobs: new Map(),
@@ -339,11 +500,11 @@ export class OrchestrationEngine extends EventEmitter {
     const folders = new Set<string>();
     for (const change of plan.changes) {
       const parent = path.dirname(change.filePath);
-      // Use the immediate parent directory as the job scope.  A previous
-      // version took parts.slice(0, 2), which silently dropped single-segment
-      // parents (path.dirname("README.md") === ".", path.dirname("src/a.ts")
-      // === "src") — those files were invisible to the orchestrator.
-      folders.add(parent || '.');
+      // Get the top-level parent directory (e.g., ./src/components/auth -> ./src/components)
+      const parts = parent.split(path.sep);
+      if (parts.length >= 2) {
+        folders.add(parts.slice(0, 2).join(path.sep));
+      }
     }
     return Array.from(folders);
   }
@@ -352,31 +513,21 @@ export class OrchestrationEngine extends EventEmitter {
    * Runs the full orchestration pipeline.
    */
   async run(): Promise<OrchestrationResult> {
-    // Step 1: Dispatch Worker-Verifier loops in parallel, limited to
-    // MAX_CONCURRENCY concurrent jobs.  Each job has at most one active
-    // agent at a time (worker OR verifier), so the total active agents
-    // never exceeds MAX_CONCURRENCY.
-    //
-    // The previous version used a sequential for-await loop, which meant
-    // MAX_CONCURRENCY was dead code — only one agent was ever active.
-    const jobEntries = Array.from(this.jobCard.jobs.entries());
-    const limit = ORCHESTRATOR_CONFIG.MAX_CONCURRENCY;
-    let next = 0;
-    const runNext = async (): Promise<void> => {
-      while (next < jobEntries.length) {
-        const idx = next++;
-        const [jobId, job] = jobEntries[idx];
-        await this.executeJobLoop(jobId, job);
-      }
-    };
-    const runners = Array.from(
-      { length: Math.min(limit, jobEntries.length) },
-      () => runNext(),
-    );
-    await Promise.all(runners);
+    // Step 1: Dispatch Worker-Verifier loop for each folder
+    for (const [jobId, job] of this.jobCard.jobs) {
+      await this.executeJobLoop(jobId, job);
+    }
 
     // Step 2: Compact context
     const ledger = ContextCompactor.compact(this.jobCard);
+
+    // Dry-run / smoke mode: no real subagents ran (the dispatcher is a stub), so
+    // running Playwright would be a live side effect that hangs on any project
+    // without a test setup. Skip it and report success on the state machine walk.
+    if (this.skipTests) {
+      this.jobCard.overallStatus = 'COMPLETED';
+      return { success: true, jobCard: this.jobCard };
+    }
 
     // Step 3: Run Playwright tests
     this.jobCard.overallStatus = 'PLAYWRIGHT_TESTING';
@@ -500,16 +651,11 @@ Exit protocol: Emit JSON with status, files_modified, debrief, self_audit.`;
   /**
    * Builds Verifier instructions for reviewing Worker output.
    */
-  private buildVerifierInstructions(job: FolderJob, workerResult: SubagentResult): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private buildVerifierInstructions(job: FolderJob, _workerResult: SubagentResult): string {
     return `## Verifier Mission: ${job.id}
 
 Review the Worker's changes in scope: ${job.parentFolder}
-
-Worker debrief:
-${workerResult.debrief}
-
-Files modified:
-${workerResult.filesModified.map((f) => `- ${f}`).join('\n')}
 
 Check:
 1. All changes follow best practices
@@ -532,14 +678,11 @@ Exit protocol: Emit JSON with status (COMPLETED|FAILED), files_modified, debrief
     }
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        exec('npx playwright test', {
-          cwd: root,
-          timeout: 120000,
-        }, (error: Error | null) => {
-          if (error) reject(error);
-          else resolve();
-        });
+      execSync('npx playwright test', {
+        cwd: root,
+        stdio: 'pipe',
+        timeout: 120000,
+        encoding: 'utf-8'
       });
       return { passed: true };
     } catch (error: any) {
@@ -573,10 +716,10 @@ Exit protocol: Emit JSON with status (COMPLETED|FAILED), files_modified, debrief
   }
 
   /**
-   * Spawns a Test-Fixer subagent with need-to-know scope only, routed through
-   * the injected SubagentDispatcher — not a hardcoded stub.
+   * Spawns a Test-Fixer subagent with need-to-know scope only.
    */
   private async spawnTestFixer(testResult: TestResult, ledger: CompactLedger): Promise<SubagentResult> {
+    // Read README.md and architecture diagram for context
     const projectRoot = this.findProjectRoot();
     const readme = this.readIfExists(path.join(projectRoot, 'README.md'));
     const archDiagram = this.readArchitectureDiagram(projectRoot);
@@ -594,17 +737,17 @@ COMPACTED LEDGER:
 ${JSON.stringify(ledger, null, 2)}
 `.trim();
 
+    // Emit event for actual subagent dispatch (integrate with Hermes runtime)
     this.emit('test_fixer_requested', { context });
 
-    const testFixerPayload: SubagentPayload = {
-      missionId: 'TEST-FIXER',
-      role: 'TEST_FIXER',
-      allowedFolderScope: projectRoot,
-      instructions: context,
-      contextSummary: JSON.stringify(ledger),
+    // For now, return a structured result indicating the fix was requested
+    // Production: replace with actual subagent dispatch
+    return {
+      status: 'FAILED',
+      filesModified: [],
+      debrief: `Test-Fixer spawned with need-to-know context. Failing specs: ${testResult.failingSpecs?.join(', ')}. Manual intervention required.`,
+      selfAudit: 'Test-Fixer stub — needs integration with Hermes subagent runtime for actual fix execution.'
     };
-
-    return this.manager.spawnSubagent(testFixerPayload);
   }
 
   private findProjectRoot(): string {

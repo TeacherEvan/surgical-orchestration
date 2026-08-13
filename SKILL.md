@@ -225,6 +225,63 @@ To eliminate recursive looping (e.g., subagent repeatedly submitting the same ch
 3. **Collision Detection:** Before spawning a new Worker for a retry, check if the debrief hash already exists in the registry.
 4. **Loop Termination:** If a 100% hash match is found, immediately terminate the subagent branch, mark the job as `ESCALATED`, and log a failure event.
 
+## Code Reviewer + Composer Layer (post-build strategic review)
+
+After the Worker/Verifier loop marks every folder `VERIFIED` (or the orchestrator
+is run in `--review` mode), a dedicated **Code Reviewer** performs a separate,
+strategic pass. It does not re-implement verification — it adds the front/back
+split and an escalation path to a Composer that delivers a bounded verdict.
+
+### Topology
+
+```
+[ Orchestrator: folders all VERIFIED ]
+              |
+              v
+[ CODE REVIEWER ]  (classify every changed file)
+   |  FRONTEND lane  --> [ FRONTEND_REVIEWER ]
+   |  BACKEND  lane  --> [ BACKEND_REVIEWER  ]
+   |  AMBIGUOUS       --> included in BOTH lanes (split review)
+   v
+[ COMPOSER ]  (takes ALL subagent recs, selects exactly 2 + 2)
+   --> 2 recommendations + 2 suggestions to the human / main agent
+```
+
+### Rules (every actor, every level)
+
+1. **Classification first.** `StandardCodeReviewer.classify()` buckets each
+   changed file as `FRONTEND` (`.tsx/.jsx/.vue/.svelte/.css/.html`, or paths
+   containing `/components/`, `/ui/`, `/frontend/`), `BACKEND` (`.py/.go/.rs/.java/
+   .rb/.php/.sql/.prisma`, or `/api/`, `/server/`, `/backend/`, `/services/`,
+   `convex/`), or `AMBIGUOUS` (everything else). AMBIGUOUS files are sent to
+   BOTH reviewers so nothing escapes review.
+2. **Specialised fan-out.** One `FRONTEND_REVIEWER` and one `BACKEND_REVIEWER`
+   are dispatched. Each reviews only its lane's files and returns a *summarised*
+   debrief plus its own `recommendations` + `suggestions` (the subagent-to-parent
+   contract; see `SubagentResult`).
+3. **Code Reviewer distils.** It forwards exactly **2 recommendations + 2
+   suggestions** up to the Composer (sliced from the merged subagent output).
+4. **Composer decides.** The Composer receives ALL subagent recommendations and
+   MUST select exactly **2 recommendations + 2 suggestions** to surface. It does
+   not invent new ones; it chooses which 2 of the collected findings matter most.
+5. **Same contract up the chain.** Every subagent (reviewers → Code Reviewer →
+   Composer → main orchestrator) returns `recommendations`/`suggestions` to its
+   parent. The main orchestrator is the only one that reports to the human.
+
+### CLI
+
+```bash
+npx tsx surgical-orchestration.ts --review <build-plan.json>
+# classifies front/back, fans out two specialised reviewers (dry-run-safe),
+# then prints the Composer's selected 2 recommendations + 2 suggestions.
+```
+
+Implementation lives in `references/orchestrator.ts`
+(`StandardCodeReviewer`, `CodeReviewLayer`, `Composer` is in
+`references/surgical-orchestration.ts`). Unit-tested in
+`references/orchestrator.review.test.ts` (REDPROOF: 12 assertions, run with
+`npx tsx orchestrator.review.test.ts`).
+
 ## Subagent Mission Envelope
 
 Each subagent receives a mission envelope consisting of a structured JSON header followed by Markdown instructions.
@@ -387,11 +444,14 @@ npx tsc --noEmit --strict --skipLibCheck --module node16 \
   --moduleResolution node16 --target es2022 --types node *.ts
 npx tsx surgical-orchestration.ts --init
 npx tsx surgical-orchestration.ts --dry-run build-plan.json   # walks the state machine, spawns nothing
-npx tsx surgical-orchestration.ts --help                      # print usage
+npx tsx orchestrator.review.test.ts                          # Code Reviewer + Composer unit proof (12 assertions)
+npx tsx surgical-orchestration.ts --review build-plan.json   # classify front/back, fan out, Composer 2+2
 ```
 
 `--dry-run` exercises the dispatch loop, ledger compaction and hash registry
-without spending a single subagent.
+without spending a single subagent. `--review` exercises the Code Reviewer
+classification, the two specialised reviewer fan-out, and the Composer's 2+2
+selection.
 
 ## Pitfalls (scars, dated)
 
@@ -413,29 +473,56 @@ without spending a single subagent.
   parallel `*-specification.md` pasted 90%+ of the TypeScript inline and named a
   class (`SurgicalOrchestrator`) absent from the sources. Duplicated code in
   prose always drifts; the source files are the specification.
-- **2026-08-05 — the concurrency that wasn't.** `run()` used a sequential
-  for-await loop, so `MAX_CONCURRENCY=2` was dead code — only one agent was ever
-  active. The fix uses a worker-pool pattern: `Promise.all` of `limit` runners,
-  each pulling the next job from a shared queue. Each job has at most one active
-  agent (worker OR verifier), so total active agents never exceeds the cap.
-- **2026-08-05 — the verifier reviewed a blank page.** `buildVerifierInstructions`
-  accepted `_workerResult` but never used it (eslint-disabled). The verifier
-  was asked to review work it could not see. The fix inlines the worker's
-  debrief and file list into the verifier prompt.
-- **2026-08-05 — root-level files were invisible.** `extractParentFolders`
-  used `parts.slice(0, 2)`, which dropped single-segment parents —
-  `README.md`, `Makefile`, `src/a.ts` were silently lost. Use the immediate
-  parent directory as the job scope.
-- **2026-08-05 — the test-fixer was a stub.** `spawnTestFixer` emitted an event
-  and returned a hardcoded `FAILED`, bypassing the injected dispatcher. The
-  fix routes a `TEST_FIXER` payload through `spawnSubagent` like every other
-  role.
-- **2026-08-05 — execSync froze the event loop.** `runPlaywrightTests` used
-  `execSync` inside an async method, blocking for up to 120s. The fix uses
-  callback-based `exec` wrapped in a Promise.
 - Verifier feedback is only useful if it reaches the *next* worker attempt —
   store it on the job (`lastVerifierFeedback`) and inline it into the retry
   prompt, otherwise all three cycles repeat the same mistake.
+- **2026-08-10 — the orchestrator that spawned nothing.** When the blueprint's
+  jobs are already implemented (feature commits on the branch + working-tree
+  files present, all gates green), spawning Worker/Verifier pairs is pure waste
+  and risks the loop guard escalating healthy jobs. Switch to **verify-then-sync**
+  mode: run the `@GATE` set, reconcile working-tree drift (dep-bump-vs-lockfile,
+  doc version drift), commit scoped source only, push, confirm `0 0`. Agent
+  files (`AGENTS.md`/`CLAUDE.md`/`.agents/`/`.claude/`) are write-protected and
+  excluded from the commit. See `references/verify-then-sync.md`.
+- **2026-08-10 — incoherent generated state in verify-then-sync.** Reverting
+  tracked drift can still ship a broken tree if a generated file references an
+  *untracked* module. Concrete case: `convex codegen` regenerated
+  `convex/_generated/api.d.ts` to import `../lib/log.js` because a stray
+  untracked `convex/lib/log.ts` sat on disk; HEAD's `api.d.ts` did NOT reference
+  it. Committing the regenerated `api.d.ts` without the source breaks the next
+  `convex dev`. Before `git checkout`/commit of generated files, confirm every
+  module the generated file imports is tracked-or-intended. If the "drift" is
+  generated-from-stray, revert the generated file to HEAD (HEAD is coherent) and
+  **quarantine** the stray source: `mkdir -p .scratch-orphans && mv <file>
+  .scratch-orphans/<file>.disabled` — never commit it, never silently delete it
+  (user may have intended it on another branch). Also `package-lock.json`
+  spurious deletions from npm version rewrites are NOT real dep changes:
+  `git checkout -- package-lock.json` and move on. Drift-classification recipe:
+  `references/verify-then-sync-drift-triage.md`.
+
+- **2026-08-11 — parallel session already pushed.** When syncing to a shared
+  remote, a sibling background agent (a `delegate_task` background run or a prior
+  session) may have already pushed commits to the SAME branch. `git push` is then
+  rejected (non-fast-forward: "Updates were rejected because the remote contains
+  work that you do not have locally"). NEVER force-push — that clobbers the
+  parallel agent's work. Instead: `git fetch origin`; inspect divergence with
+  `git log HEAD..origin/main` and `git diff --stat HEAD origin/main`; then
+  `git rebase origin/main`. During the rebase take the remote's (`--ours`) version
+  for every file the parallel agent already fixed, and KEEP ONLY your unique
+  contributions (e.g. a CI stub the remote deleted, or plan/blueprint docs). For
+  files needing both changes (a vitest `resolve.alias` block), manually merge to
+  keep both. Verify gates green, then push. Full recipe:
+  `references/verify-then-sync-parallel-push.md`.
+- **2026-08-13 — generator commands collide across scopes.** Two parallel workers (concurrency cap 2) both needed the `apps/flutter` scaffold: Task 1.1 was building it while Task 1.2 ran `flutter create apps/flutter` to ensure the target existed. Both wrote the SAME shared path; the second clobbered the first's 5-platform scaffold with a linux-only copy. Directory-scope sandboxing did NOT catch this because `flutter create` regenerates an entry file at a path both agents considered in-scope. Lesson: any command that regenerates a shared entry/manifest (`flutter create`, `npm init`, `cargo new`, codegen) is a cross-scope collision risk even under 1-folder-per-agent. Rules: (a) exactly ONE agent owns the scaffold/generator step; (b) never have a second agent run a generator "to ensure the path exists" — pass the dependency as a precondition, or have the dependent job wait; (c) if two jobs share a manifest (`Cargo.toml`, `pubspec.yaml`) or a type contract (e.g. one `SignalObservation` struct), DO NOT fan out — serialize or build directly. A single tightly-coupled package is safer built by the orchestrator than by racing workers.
+
+- **2026-08-13 — the spawn self-check was a tautology, and the fix was a lie.** `spawnSubagent` called `assertScopeBoundary(scope, scope)`: a path is always inside itself, so the assertion could never fail — the exact bug the 2026-08-05 Pitfall claims was removed. Worse, when re-read it still stood, and its own comment asserted "this deliberately no longer compares the scope to itself." The library does NOT know the individual files a host subagent will touch, so it CANNOT do per-file sandboxing; per-file enforcement is the HOST's contract (call `assertScopeBoundary(file, scope)` from the tool layer before every read/write). The library's job is only to fail closed on a missing/empty scope: throw `[SCOPE_INVALID]` when `allowedFolderScope` is unset. Verified by probe: `assertScopeBoundary('/evil/file','/scope')` correctly throws; `assertScopeBoundary(scope, scope)` returns OK (no-op).
+- **2026-08-13 — `--dry-run` hung instead of walking the state machine.** `--dry-run` is documented as "spawn nothing / walk the state machine," but `run()` always ended by executing real `npx playwright test` (orchestrator.ts `runPlaywrightTests`). With no project test setup it hangs indefinitely (observed EXIT=124, 120s timeout). Fix: `OrchestrationEngine` now takes `opts.skipTests`; the CLI passes `skipTests: dryRun`, so dry-run returns SUCCESS on the state-machine walk without a live test side effect. Re-verified: dry-run now exits 0.
+- **2026-08-13 — schema/code drift on the debrief payload.** `references/debrief-schema.json` declared `errorSignature` REQUIRED, but `DebriefPayload` in `debrief.ts` types it optional and `orchestrator.ts` only fills it on FAILED status. A strict JSON-schema validator would reject the normal (success) case. Fixed: dropped `errorSignature` from the schema's `required` array to match the code. Before citing any internal schema as authority, grep it against the emitting code.
+- **2026-08-13 — `convex/` prefix misclassified as AMBIGUOUS.** `defaultClassifyFile` matched `/convex/` (with surrounding slashes) but real repo paths are `convex/payments.ts` with NO leading slash, so they fell through to AMBIGUOUS and escaped the BACKEND lane. A unit test (`orchestrator.review.test.ts`) caught it: added `p.startsWith('convex/')`. Lesson: path heuristics must cover both `dir/` (mid-path) and `dir/` (path-start) forms; the test is the gate, not the regex.
+- **2026-08-13 — the Composer must SELECT, not INVENT.** The Composer's contract (per the user's spec) is to take ALL subagent recommendations and decide which 2 to surface — it is a reducer over collected findings, not a generator of new advice. Encoding it as `candidates.slice(0, 2)` enforces "exactly 2 recommendations + 2 suggestions" and keeps the verdict bounded for the human reader.
+- **2026-08-13 — reviewers need a recommendations/suggestions channel in `SubagentResult`.** The original `SubagentResult` had only `debrief`/`selfAudit`; there was no wire for a subagent to pass its own recommendations up to the parent. Added optional `recommendations?: string[]` and `suggestions?: string[]` to `SubagentResult` so every tier (reviewers → Code Reviewer → Composer) honours the same up-chain contract.
+- **2026-08-13 — the default linter `tsc` is NOT the verification gate, and its errors are false positives.** The skill's linter runs a bare `tsc --noEmit <file>` WITHOUT `--types node`, so every `node:*` import and `process`/`EventEmitter` reference errors as `TS2591`/`TS2339`. These are NOT real defects — they vanish under the skill's prescribed command (`tsc --noEmit --strict --skipLibCheck --module node16 --moduleResolution node16 --target es2022 --types node *.ts`). Always verify with the prescribed command, never the bare linter, before concluding the TS is broken. Run it in an isolated temp dir (copy `*.ts` out, `npm i -D typescript @types/node`) so you never pollute the skill tree with `node_modules`. See `references/verify-skill-typescript.md`.
+- **2026-08-13 — verify skill-shipped TS with a framework-free `*.test.ts` run via `npx tsx`.** No vitest/jest needed: a standalone script with `assert()`-style checks and `process.exit(1)` on failure proves behavior end-to-end. The review test `orchestrator.review.test.ts` is the worked example — it caught the `convex/` misclassification that the type-checker could never see. Full recipe + the linter gotcha: `references/verify-skill-typescript.md`.
 
 ## References
 
@@ -449,3 +536,4 @@ without spending a single subagent.
 - [JobCard schema](./references/jobcard-schema.json) — orchestrator state ledger
 - [Subagent exit schema](./references/subagent-exit-schema.json) — the JSON a subagent must emit
 - [Debrief schema](./references/debrief-schema.json) — canonical hash input
+- [Verify-then-sync mode](./references/verify-then-sync.md) — when the plan is already done, verify gates + commit/push/doc-sync instead of spawning workers

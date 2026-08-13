@@ -1,0 +1,30 @@
+{
+  "description": "Mixed-stack build plan: 2 frontend, 2 backend, 1 ambiguous file",
+  "changes": [
+    {
+      "filePath": "src/components/Button.tsx",
+      "description": "Add loading spinner state to the Button component",
+      "type": "modify"
+    },
+    {
+      "filePath": "src/app/page.tsx",
+      "description": "Wire the dashboard page to the new Button",
+      "type": "modify"
+    },
+    {
+      "filePath": "src/services/api/auth.ts",
+      "description": "Implement OAuth token exchange endpoint",
+      "type": "add"
+    },
+    {
+      "filePath": "convex/payments.ts",
+      "description": "Add payment webhook handler with idempotency",
+      "type": "modify"
+    },
+    {
+      "filePath": "docs/README.md",
+      "description": "Document the new auth + payment flow",
+      "type": "modify"
+    }
+  ]
+}

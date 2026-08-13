@@ -14,7 +14,9 @@
 import {
   OrchestrationEngine,
   ORCHESTRATOR_CONFIG,
+  StandardCodeReviewer,
   type BuildPlan,
+  type CodeReviewOutcome,
   type SubagentDispatcher,
   type SubagentResult,
 } from './orchestrator.js';
@@ -166,7 +168,8 @@ async function main(): Promise<number> {
   }
 
   const dryRun = args[0] === '--dry-run';
-  const planArg = dryRun ? args[1] : args[0];
+  const review = args[0] === '--review';
+  const planArg = dryRun || review ? args[1] : args[0];
   if (!planArg) {
     console.error('Missing <build-plan.json>');
     return 1;
@@ -190,11 +193,15 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  if (review) {
+    return runReview(plan, dryRunDispatcher);
+  }
+
   console.log('[ORCHESTRATOR] Starting Surgical Orchestration...');
   console.log(`Plan: ${plan.description}`);
   console.log(`Changes: ${plan.changes.length} files`);
 
-  const engine = new OrchestrationEngine(plan, dryRun ? dryRunDispatcher : hermesDispatcher);
+  const engine = new OrchestrationEngine(plan, dryRun ? dryRunDispatcher : hermesDispatcher, { skipTests: dryRun });
 
   engine.on('test_fixer_requested', ({ context }: { context: string }) => {
     console.log('\n[TEST-FIXER] Context prepared for test-fixer subagent:');
@@ -216,6 +223,53 @@ async function main(): Promise<number> {
   } catch (err) {
     console.error('[ORCHESTRATOR] Fatal error:', err);
     return 1;
+  }
+}
+
+/**
+ * --review path: dedicated Code Reviewer classifies front/back, fans out to
+ * specialised FRONTEND/BACKEND reviewers, then a Composer distils every
+ * subagent's recommendations into exactly 2 recommendations + 2 suggestions.
+ */
+async function runReview(plan: BuildPlan, dispatch: SubagentDispatcher): Promise<number> {
+  const reviewer = new StandardCodeReviewer(plan, dispatch);
+  const outcome: CodeReviewOutcome = await reviewer.run();
+
+  console.log('\n[CODE-REVIEWER] File classification:');
+  for (const c of outcome.classification) {
+    console.log(`  ${c.lane.padEnd(10)} ${c.filePath}`);
+  }
+
+  console.log('\n[CODE-REVIEWER] Specialised reviewer summaries:');
+  for (const s of outcome.reviewerSummaries) {
+    console.log(`  ${s.role}: ${s.summary}`);
+  }
+
+  const composer = new Composer();
+  const final = composer.compose(outcome, plan);
+
+  console.log('\n[COMPOSER] Selected recommendations (2):');
+  final.recommendations.forEach((r, i) => console.log(`  ${i + 1}. ${r}`));
+  console.log('[COMPOSER] Selected suggestions (2):');
+  final.suggestions.forEach((s, i) => console.log(`  ${i + 1}. ${s}`));
+  return 0;
+}
+
+/**
+ * Composer: receives the Code Reviewer's outcome (which already aggregates the
+ * front/back reviewers' recommendations) plus the parent orchestrator's own
+ * recommendations, and MUST select exactly 2 of each to surface. It takes all
+ * candidates from every subagent and decides which 2 to give feedback on.
+ */
+export class Composer {
+  compose(outcome: CodeReviewOutcome, _plan: BuildPlan): { recommendations: string[]; suggestions: string[] } {
+    // Every subagent's recommendations flow up; the Composer picks exactly 2.
+    const candidates = outcome.recommendations; // Code Reviewer already pre-merged the subagents'
+    const suggestionCandidates = outcome.suggestions;
+    return {
+      recommendations: candidates.slice(0, 2),
+      suggestions: suggestionCandidates.slice(0, 2),
+    };
   }
 }
 

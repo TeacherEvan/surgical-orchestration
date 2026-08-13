@@ -1,0 +1,10 @@
+{
+  "description": "Minimal single-backend build plan used to exercise the loop guard",
+  "changes": [
+    {
+      "filePath": "src/server/loop.ts",
+      "description": "Add bounded retry loop with deadline guard",
+      "type": "modify"
+    }
+  ]
+}
