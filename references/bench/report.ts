@@ -1,8 +1,9 @@
 // report.ts (Task 5 — reporter).
-// Runs the engine + Code Reviewer directly with an accurate fake dispatcher across
-// a baseline and a swept parameter, writes results/<stamp>.json, and prints the
-// comparison table. A setting "produced a different result" iff its row differs
-// from baseline on wall_ms / ledger_tokens / accuracy.
+// Sweeps all four ORCHESTRATOR_CONFIG knobs (MAX_CONCURRENCY, MAX_REVISION_CYCLES,
+// SUBAGENT_TIMEOUT_MS, COMPACTION_TOKEN_THRESHOLD) one at a time (ceteris paribus),
+// writes results/<stamp>.json, and prints the comparison table. A setting
+// "produced a different result" iff its row differs from the baseline on
+// wall_ms / ledger_tokens / accuracy_pct.
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OrchestrationEngine, ContextCompactor, StandardCodeReviewer, ORCHESTRATOR_CONFIG, type BuildPlan, type SubagentDispatcher, type SubagentResult } from '../orchestrator.js';
@@ -23,28 +24,46 @@ function accurateDispatcher(): SubagentDispatcher {
   } as SubagentResult);
 }
 
-async function measure(label: string, conc: number) {
-  const saved = ORCHESTRATOR_CONFIG.MAX_CONCURRENCY;
-  (ORCHESTRATOR_CONFIG as { MAX_CONCURRENCY: number }).MAX_CONCURRENCY = conc;
-  const t0 = Date.now();
-  const engine = new OrchestrationEngine(plan, accurateDispatcher(), { skipTests: true });
-  const result = await engine.run();
-  const reviewer = new StandardCodeReviewer(plan, accurateDispatcher());
-  const outcome = await reviewer.run();
-  const composer = new Composer();
-  const final = composer.compose(outcome, plan);
-  const wall = Date.now() - t0;
-  const ledger = ContextCompactor.compact(result.jobCard);
-  const ledgerTokens = Math.ceil(JSON.stringify(ledger).length / 4);
-  const accuracy = final.recommendations.length === 2 && final.suggestions.length === 2 ? 100 : 0;
-  (ORCHESTRATOR_CONFIG as { MAX_CONCURRENCY: number }).MAX_CONCURRENCY = saved;
-  return { setting: label, wall_ms: wall, ledger_tokens: ledgerTokens, accuracy_pct: accuracy };
+type Row = { setting: string; wall_ms: number; ledger_tokens: number; accuracy_pct: number };
+
+async function measure(label: string, override: Partial<typeof ORCHESTRATOR_CONFIG>): Promise<Row> {
+  const saved = { ...ORCHESTRATOR_CONFIG };
+  Object.assign(ORCHESTRATOR_CONFIG, override);
+  try {
+    const t0 = Date.now();
+    const engine = new OrchestrationEngine(plan, accurateDispatcher(), { skipTests: true });
+    const result = await engine.run();
+    const reviewer = new StandardCodeReviewer(plan, accurateDispatcher());
+    const outcome = await reviewer.run();
+    const composer = new Composer();
+    const final = composer.compose(outcome, plan);
+    const wall = Date.now() - t0;
+    const ledger = ContextCompactor.compact(result.jobCard);
+    const ledgerTokens = Math.ceil(JSON.stringify(ledger).length / 4);
+    const accuracy = final.recommendations.length === 2 && final.suggestions.length === 2 ? 100 : 0;
+    return { setting: label, wall_ms: wall, ledger_tokens: ledgerTokens, accuracy_pct: accuracy };
+  } finally {
+    Object.assign(ORCHESTRATOR_CONFIG, saved);
+  }
 }
 
 async function main() {
-  const rows: Array<{ setting: string; wall_ms: number; ledger_tokens: number; accuracy_pct: number }> = [];
-  rows.push(await measure('MAX_CONCURRENCY=1 (baseline)', 1));
-  rows.push(await measure('MAX_CONCURRENCY=2 (engine max)', 2));
+  const baseline = await measure('baseline (defaults)', {});
+
+  const rows: Row[] = [baseline];
+  rows.push(await measure('MAX_CONCURRENCY=1',          { MAX_CONCURRENCY: 1 as unknown as 2 }));
+  rows.push(await measure('MAX_CONCURRENCY=2 (engine cap)', { MAX_CONCURRENCY: 2 as unknown as 2 }));
+  rows.push(await measure('MAX_CONCURRENCY=4 (capped)', { MAX_CONCURRENCY: 4 as unknown as 2 }));
+  rows.push(await measure('MAX_REVISION_CYCLES=1',      { MAX_REVISION_CYCLES: 1 as unknown as 3 }));
+  rows.push(await measure('MAX_REVISION_CYCLES=3 (default)', { MAX_REVISION_CYCLES: 3 as unknown as 3 }));
+  rows.push(await measure('MAX_REVISION_CYCLES=5',      { MAX_REVISION_CYCLES: 5 as unknown as 3 }));
+  rows.push(await measure('SUBAGENT_TIMEOUT_MS=200',    { SUBAGENT_TIMEOUT_MS: 200 as unknown as 180000 }));
+  rows.push(await measure('SUBAGENT_TIMEOUT_MS=2000',   { SUBAGENT_TIMEOUT_MS: 2000 as unknown as 180000 }));
+  rows.push(await measure('SUBAGENT_TIMEOUT_MS=180000', { SUBAGENT_TIMEOUT_MS: 180000 as unknown as 180000 }));
+  rows.push(await measure('COMPACTION_THRESHOLD=0.25',  { COMPACTION_TOKEN_THRESHOLD: 0.25 as unknown as 0.75 }));
+  rows.push(await measure('COMPACTION_THRESHOLD=0.50',  { COMPACTION_TOKEN_THRESHOLD: 0.5 as unknown as 0.75 }));
+  rows.push(await measure('COMPACTION_THRESHOLD=0.75 (default)', { COMPACTION_TOKEN_THRESHOLD: 0.75 as unknown as 0.75 }));
+  rows.push(await measure('COMPACTION_THRESHOLD=1.00',  { COMPACTION_TOKEN_THRESHOLD: 1 as unknown as 0.75 }));
 
   const outDir = resolve(__dirname, 'results');
   mkdirSync(outDir, { recursive: true });
@@ -56,9 +75,16 @@ async function main() {
   for (const r of rows) {
     console.log(r.setting.padEnd(34), String(r.wall_ms).padStart(9), String(r.ledger_tokens).padStart(12), `${r.accuracy_pct}%`.padStart(9));
   }
-  const diff = rows.slice(1).some((r) => r.wall_ms !== rows[0].wall_ms || r.ledger_tokens !== rows[0].ledger_tokens || r.accuracy_pct !== rows[0].accuracy_pct);
-  console.log(diff ? '\nDIFFERENT RESULTS OBSERVED across settings ✓' : '\nWARN: no setting changed results');
-  if (!diff) process.exit(1);
+
+  const seen = new Set<string>();
+  let differing = 0;
+  for (const r of rows) {
+    const k = `${r.wall_ms}|${r.ledger_tokens}|${r.accuracy_pct}`;
+    if (!seen.has(k)) { seen.add(k); differing++; }
+  }
+  console.log(`\n${differing} distinct result-patterns across ${rows.length} settings`);
+  console.log(differing > 1 ? 'DIFFERENT RESULTS OBSERVED across settings ✓' : 'WARN: no setting changed results');
+  if (differing <= 1) process.exit(1);
 }
 
 main().catch((e) => {
