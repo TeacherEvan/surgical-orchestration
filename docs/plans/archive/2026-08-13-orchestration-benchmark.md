@@ -1,6 +1,7 @@
 # Orchestration Benchmark & Parameter-Sweep Test Suite
 
-> **For Hermes:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **STATUS: IMPLEMENTED + VERIFIED 2026-09-07.** All 5 tasks shipped in commit `2341f2e`. GATE: tsc clean · accuracy PASS · timing PASS · token PASS · playwright e2e PASS · report.ts shows 3 distinct result-patterns across 14 settings. Archived to `docs/plans/archive/`.
+
 
 **Goal:** Build a practical, repeatable test harness that measures the surgical-orchestration engine on three axes — accuracy, timing, and token use — and sweeps its four agent-completion parameters to prove different settings produce different, predictable results.
 
