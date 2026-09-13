@@ -500,10 +500,16 @@ export class OrchestrationEngine extends EventEmitter {
     const folders = new Set<string>();
     for (const change of plan.changes) {
       const parent = path.dirname(change.filePath);
-      // Get the top-level parent directory (e.g., ./src/components/auth -> ./src/components)
+      // Get the top-level parent directory (e.g., ./src/components/auth -> ./src/components).
+      // A single-segment parent (e.g. `convex/payments.ts` -> `convex`) is its own
+      // scope; the old `parts.length >= 2` guard silently dropped every top-level
+      // directory, so plans touching convex/, api/, or root-level files produced
+      // ZERO jobs and reported success with an empty JobCard.
       const parts = parent.split(path.sep);
       if (parts.length >= 2) {
         folders.add(parts.slice(0, 2).join(path.sep));
+      } else if (parts.length === 1 && parts[0]) {
+        folders.add(parts[0]);
       }
     }
     return Array.from(folders);

@@ -1,6 +1,7 @@
 // RED-GREEN-REFACTOR: assertions for the Code Reviewer + Composer extension.
 import {
   StandardCodeReviewer,
+  OrchestrationEngine,
   type BuildPlan,
   type SubagentDispatcher,
   type SubagentResult,
@@ -74,6 +75,37 @@ async function main() {
   const final = composer.compose(outcome, PLAN);
   assert(final.recommendations.length === 2, `composer selects exactly 2 recommendations (got ${final.recommendations.length})`);
   assert(final.suggestions.length === 2, `composer selects exactly 2 suggestions (got ${final.suggestions.length})`);
+
+  // 4. Top-level directory scope: plans touching single-segment parents
+  // (convex/, api/, root-level files) must produce a job for EACH one.
+  // The old extractParentFolders() dropped these entirely (parts.length >= 2
+  // guard), so a plan touching only convex/ produced ZERO jobs and the engine
+  // reported success with an empty JobCard.
+  console.log('Top-level directory scope (convex/, api/, root files)');  {
+    const topPlan: BuildPlan = {
+      description: 'top-level scope probe',
+      changes: [
+        { filePath: 'convex/payments.ts', description: 'db', type: 'modify' },
+        { filePath: 'convex/auth.ts', description: 'db', type: 'modify' },
+        { filePath: 'api/server.ts', description: 'api', type: 'add' },
+        { filePath: 'README.md', description: 'docs', type: 'modify' },
+      ],
+    };
+    const engine = new OrchestrationEngine(topPlan, fakeDispatch, { skipTests: true });
+    const result = await engine.run();
+    const folders = [...result.jobCard.jobs.values()].map((j) => j.parentFolder).sort();
+    assert(
+      folders.length === 3,
+      `top-level plan produces 3 jobs (convex, api, README), got ${folders.length} [${folders.join(',')}]`,
+    );
+    assert(folders.includes('convex'), 'convex/ is its own job scope');
+    assert(folders.includes('api'), 'api/ is its own job scope');
+    // path.dirname('README.md') === '.', so a root-level file's scope IS the repo root.
+    assert(folders.includes('.'), 'root-level README.md scope is . (repo root), got [' + folders.join(',') + ']');
+    for (const job of result.jobCard.jobs.values()) {
+      assert(job.status === 'VERIFIED', `job ${job.id} (${job.parentFolder}) VERIFIED, got ${job.status}`);
+    }
+  }
 
   console.log('\nALL REVIEW/COMPOSER ASSERTIONS PASSED');
 }
