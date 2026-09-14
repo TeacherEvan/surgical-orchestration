@@ -131,7 +131,7 @@ export class ContextCompactor {
    * Strips raw tool outputs, long diffs, and execution logs.
    * Retains only state markers, debrief hashes, and active checklists.
    */
-  static compact(jobCard: JobCard): CompactLedger {
+  static compact(jobCard: JobCard, threshold: number = ORCHESTRATOR_CONFIG.COMPACTION_TOKEN_THRESHOLD): CompactLedger {
     const ledger: CompactLedger = {
       activeJobs: [],
       completedChecks: [],
@@ -149,7 +149,12 @@ export class ContextCompactor {
           folder: job.parentFolder,
           hash: latestDebrief.hash.substring(0, 8),
         });
-        ledger.debriefHashes.push(latestDebrief.hash);
+        // The full 64-char hash is redundant with the 8-char prefix already
+        // stored in completedChecks. At threshold < 1.0 the ledger is compacted
+        // further by dropping it — this is the knob that makes
+        // COMPACTION_TOKEN_THRESHOLD actually move the token estimate. At 1.0
+        // the full hashes are retained (max fidelity, no compaction).
+        if (threshold >= 1.0) ledger.debriefHashes.push(latestDebrief.hash);
       } else {
         ledger.activeJobs.push({
           jobId,

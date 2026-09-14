@@ -38,7 +38,7 @@ async function measure(label: string, override: Partial<typeof ORCHESTRATOR_CONF
     const composer = new Composer();
     const final = composer.compose(outcome, plan);
     const wall = Date.now() - t0;
-    const ledger = ContextCompactor.compact(result.jobCard);
+    const ledger = ContextCompactor.compact(result.jobCard, ORCHESTRATOR_CONFIG.COMPACTION_TOKEN_THRESHOLD);
     const ledgerTokens = Math.ceil(JSON.stringify(ledger).length / 4);
     const accuracy = final.recommendations.length === 2 && final.suggestions.length === 2 ? 100 : 0;
     return { setting: label, wall_ms: wall, ledger_tokens: ledgerTokens, accuracy_pct: accuracy };

@@ -48,11 +48,26 @@ async function main(): Promise<void> {
   assert(t100 > t10, `ledger tokens grow with job count (${t10} -> ${t100})`);
 
   // (3) Verified jobs: only hash retained, NO debrief body text in the JSON.
+  //     The 8-char prefix in completedChecks is the load-bearing invariant for
+  //     loop detection (compared against the registry at dispatch time);
+  //     it MUST always be retained regardless of threshold. The full 64-char
+  //     hash in debriefHashes is the redundant part the COMPACTION_TOKEN_THRESHOLD
+  //     knob gates (asserted in (4) below).
   const json = JSON.stringify(verified);
-  assert(json.includes('deadbeef'), 'verified ledger retains debrief hash');
+  assert(json.includes('"hash":"h0-deadb"'), 'completedChecks carries the 8-char prefix');
   assert(!json.includes('big debrief body'), 'verified ledger excludes debrief body text');
   assert(verified.activeJobs.length === 0, 'verified ledger has zero active jobs');
   assert(verified.completedChecks.length === 10, 'verified ledger records 10 completed checks');
+
+  // (4) COMPACTION_TOKEN_THRESHOLD actually moves the token estimate.
+  //     Before the fix, compact() ignored the threshold entirely and this
+  //     assertion was a tautology (all thresholds produced identical ledgers).
+  //     Break-it check: comment out the `if (threshold >= 1.0)` guard in
+  //     compact() and this test FAILS — proving it exercises the knob.
+  const t025 = ContextCompactor.estimateTokenCount(ContextCompactor.compact(makeCard(10, 'VERIFIED'), 0.25));
+  const t100v = ContextCompactor.estimateTokenCount(ContextCompactor.compact(makeCard(10, 'VERIFIED'), 1.0));
+  console.log(`  compaction: threshold=0.25 -> ${t025} tokens, threshold=1.00 -> ${t100v} tokens`);
+  assert(t100v > t025, `threshold 1.00 (${t100v}) > threshold 0.25 (${t025}) — the knob moves the estimate`);
 
   console.log('\nTOKEN SWEEP PASSED');
 }
