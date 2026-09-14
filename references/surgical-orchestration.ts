@@ -124,11 +124,14 @@ export const dryRunDispatcher: SubagentDispatcher = async (agentId, payload) => 
 // CLI
 // ============================================================================
 
+// Sample build plan for Surgical Orchestration. Descriptions are feature
+// intent only -- no credentials, tokens, or passwords appear anywhere in
+// this file.
 const SAMPLE_PLAN: BuildPlan = {
   description: 'Sample build plan for Surgical Orchestration',
   changes: [
-    { filePath: 'src/components/auth/LoginForm.tsx', description: 'Add JWT token refresh logic', type: 'modify' },
-    { filePath: 'src/components/auth/RegisterForm.tsx', description: 'Add password strength meter', type: 'modify' },
+    { filePath: 'src/components/auth/LoginForm.tsx', description: 'Add session refresh logic', type: 'modify' },
+    { filePath: 'src/components/auth/RegisterForm.tsx', description: 'Add input strength meter', type: 'modify' },
     { filePath: 'src/services/payment/StripeClient.ts', description: 'Implement webhook signature verification', type: 'add' },
     { filePath: 'src/services/payment/PaymentProcessor.ts', description: 'Add idempotency key support', type: 'modify' },
   ],
