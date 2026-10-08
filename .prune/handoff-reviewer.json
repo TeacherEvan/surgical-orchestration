@@ -1,0 +1,715 @@
+{
+  "metadata": {
+    "target_path": "/home/ewaldt/Documents/VS/Other/SKILLS/LittleDevil-Skills/surgical-orchestration",
+    "scan_timestamp": "2026-08-19T20:10:37.107Z",
+    "scan_duration_ms": 402,
+    "git_root": "/home/ewaldt/Documents/VS/Other/SKILLS/LittleDevil-Skills/surgical-orchestration",
+    "git_branch": "main",
+    "git_commit": "ff723f9"
+  },
+  "tree_diagram": "├── README.md 🔴 2.3KB\n├── SKILL.md 🔴 24.4KB\n└── references/\n    ├── blueprint-plan-format.md 🔴 4.9KB\n    ├── build-plan.json 🔴 0.7KB\n    ├── debrief-schema.json 🔴 0.4KB\n    ├── debrief.ts 🔴 0.9KB\n    ├── jobcard-schema.json 🔴 3.0KB\n    ├── orchestrator-prompt.md 🔴 1.1KB\n    ├── orchestrator.review.test.ts 🔴 5.5KB\n    ├── orchestrator.ts 🔴 22.4KB\n    ├── security.ts 🔴 1.3KB\n    ├── subagent-exit-schema.json 🔴 1.4KB\n    ├── subagent-prompt.md 🔴 0.9KB\n    ├── surgical-orchestration-review.ts 🔴 6.0KB\n    ├── surgical-orchestration.ts 🔴 9.6KB\n    ├── verify-skill-typescript.md 🔴 1.3KB\n    ├── verify-then-sync-drift-triage.md 🔴 1.4KB\n    ├── verify-then-sync-parallel-push.md 🔴 1.1KB\n    └── verify-then-sync.md 🔴 1.0KB\n",
+  "file_inventory": [
+    {
+      "path": "README.md",
+      "size_bytes": 2321,
+      "lines": 55,
+      "language": "markdown",
+      "last_modified": "2026-08-13T10:09:54.960Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 2,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 1,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "SKILL.md",
+      "size_bytes": 24995,
+      "lines": 498,
+      "language": "markdown",
+      "last_modified": "2026-08-16T15:53:49.591Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-05T01:24:17.000Z",
+        "commit_count": 3,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 1,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/blueprint-plan-format.md",
+      "size_bytes": 4975,
+      "lines": 109,
+      "language": "markdown",
+      "last_modified": "2026-08-13T05:53:29.827Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/build-plan.json",
+      "size_bytes": 681,
+      "lines": 25,
+      "language": "json",
+      "last_modified": "2026-08-13T10:10:28.180Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:36.844Z",
+        "last_commit": "2026-08-19T20:10:36.844Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/debrief-schema.json",
+      "size_bytes": 431,
+      "lines": 17,
+      "language": "json",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/debrief.ts",
+      "size_bytes": 881,
+      "lines": 27,
+      "language": "typescript",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [
+          "external:node:crypto",
+          "external:node:path"
+        ],
+        "imported_by": [
+          "references/orchestrator.ts"
+        ],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [
+          "DebriefPayload",
+          "computeDebriefHash"
+        ],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0.4
+      }
+    },
+    {
+      "path": "references/jobcard-schema.json",
+      "size_bytes": 3093,
+      "lines": 88,
+      "language": "json",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 2,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/orchestrator-prompt.md",
+      "size_bytes": 1147,
+      "lines": 18,
+      "language": "markdown",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-04T11:15:44.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/orchestrator.review.test.ts",
+      "size_bytes": 5677,
+      "lines": 160,
+      "language": "typescript",
+      "last_modified": "2026-08-13T10:09:03.836Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:36.916Z",
+        "last_commit": "2026-08-19T20:10:36.916Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [
+          "external:node:assert/strict"
+        ],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": true,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/orchestrator.ts",
+      "size_bytes": 22909,
+      "lines": 690,
+      "language": "typescript",
+      "last_modified": "2026-08-13T10:05:57.333Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 2,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [
+          "internal:./debrief.js",
+          "external:node:path",
+          "external:node:fs",
+          "external:node:events",
+          "external:node:child_process"
+        ],
+        "imported_by": [
+          "references/surgical-orchestration-review.ts"
+        ],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [
+          "ORCHESTRATOR_CONFIG",
+          "AgentRole",
+          "JobStatus",
+          "SubagentPayload",
+          "SubagentResult",
+          "SubagentDispatcher",
+          "FolderJob",
+          "JobCard",
+          "isInsideFolder",
+          "loopGuardIsDuplicateHash",
+          "loopGuardRecordHash",
+          "ContextCompactor",
+          "CompactLedger",
+          "SubagentManager",
+          "OrchestrationEngine",
+          "BuildPlan",
+          "OrchestrationResult",
+          "TestResult"
+        ],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0.4
+      }
+    },
+    {
+      "path": "references/security.ts",
+      "size_bytes": 1375,
+      "lines": 40,
+      "language": "typescript",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [
+          "external:node:path",
+          "external:node:fs"
+        ],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [
+          "resolveRealPath",
+          "assertScopeBoundary"
+        ],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0.4
+      }
+    },
+    {
+      "path": "references/subagent-exit-schema.json",
+      "size_bytes": 1463,
+      "lines": 37,
+      "language": "json",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/subagent-prompt.md",
+      "size_bytes": 883,
+      "lines": 27,
+      "language": "markdown",
+      "last_modified": "2026-08-13T05:53:29.828Z",
+      "git_history": {
+        "first_commit": "2026-08-04T11:15:44.000Z",
+        "last_commit": "2026-08-04T11:15:44.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/surgical-orchestration-review.ts",
+      "size_bytes": 6110,
+      "lines": 167,
+      "language": "typescript",
+      "last_modified": "2026-08-16T15:48:10.161Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:37.021Z",
+        "last_commit": "2026-08-19T20:10:37.021Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [
+          "internal:./orchestrator.js"
+        ],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [
+          "Lane",
+          "ChangedFile",
+          "ReviewTierResult",
+          "defaultClassifyFile",
+          "StandardCodeReviewer",
+          "ReviewDispatcher",
+          "ComposerVerdict",
+          "compose",
+          "CodeReviewLayerResult",
+          "CodeReviewLayer"
+        ],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0.4
+      }
+    },
+    {
+      "path": "references/surgical-orchestration.ts",
+      "size_bytes": 9865,
+      "lines": 272,
+      "language": "typescript",
+      "last_modified": "2026-08-16T15:51:56.188Z",
+      "git_history": {
+        "first_commit": "2026-08-05T01:03:32.000Z",
+        "last_commit": "2026-08-05T01:03:32.000Z",
+        "commit_count": 1,
+        "authors": [
+          "TeacherEvan"
+        ]
+      },
+      "dependency_graph": {
+        "imports": [
+          "external:node:fs",
+          "external:node:path"
+        ],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [
+          "hermesDispatcher",
+          "parseSubagentResult",
+          "dryRunDispatcher"
+        ],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0.4
+      }
+    },
+    {
+      "path": "references/verify-skill-typescript.md",
+      "size_bytes": 1289,
+      "lines": 33,
+      "language": "markdown",
+      "last_modified": "2026-08-13T10:09:27.090Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:37.072Z",
+        "last_commit": "2026-08-19T20:10:37.072Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/verify-then-sync-drift-triage.md",
+      "size_bytes": 1433,
+      "lines": 29,
+      "language": "markdown",
+      "last_modified": "2026-08-13T10:09:27.088Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:37.080Z",
+        "last_commit": "2026-08-19T20:10:37.080Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/verify-then-sync-parallel-push.md",
+      "size_bytes": 1112,
+      "lines": 26,
+      "language": "markdown",
+      "last_modified": "2026-08-13T10:09:27.076Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:37.088Z",
+        "last_commit": "2026-08-19T20:10:37.088Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    },
+    {
+      "path": "references/verify-then-sync.md",
+      "size_bytes": 1043,
+      "lines": 21,
+      "language": "markdown",
+      "last_modified": "2026-08-13T10:09:27.074Z",
+      "git_history": {
+        "first_commit": "2026-08-19T20:10:37.103Z",
+        "last_commit": "2026-08-19T20:10:37.103Z",
+        "commit_count": 0,
+        "authors": []
+      },
+      "dependency_graph": {
+        "imports": [],
+        "imported_by": [],
+        "entry_point_distance": 2,
+        "is_entry_point": false,
+        "is_test": false,
+        "is_config": false
+      },
+      "dead_code_signals": {
+        "unused_exports": [],
+        "unreachable": false,
+        "zero_references": true,
+        "confidence": 0
+      }
+    }
+  ],
+  "folder_summary": [
+    {
+      "path": ".",
+      "file_count": 2,
+      "total_bytes": 27316,
+      "languages": {
+        "markdown": 2
+      },
+      "oldest_doc": "2026-08-13T10:09:54.960Z",
+      "newest_doc": "2026-08-16T15:53:49.591Z",
+      "dead_code_candidates": 0,
+      "protected_files": 0
+    },
+    {
+      "path": "references",
+      "file_count": 17,
+      "total_bytes": 64367,
+      "languages": {
+        "markdown": 7,
+        "json": 4,
+        "typescript": 6
+      },
+      "oldest_doc": "2026-08-13T05:53:29.827Z",
+      "newest_doc": "2026-08-16T15:51:56.188Z",
+      "dead_code_candidates": 0,
+      "protected_files": 1
+    }
+  ],
+  "effected_systems": [
+    {
+      "name": "build",
+      "impact": {
+        "bundle_size_reduction_est_kb": 0
+      },
+      "heuristic": true
+    },
+    {
+      "name": "ci",
+      "impact": {
+        "time_saved_seconds_est": 0
+      },
+      "heuristic": true
+    },
+    {
+      "name": "cognitive_load",
+      "impact": {
+        "files_removable": 0
+      },
+      "heuristic": true
+    }
+  ],
+  "constraints": {
+    "exclusion_patterns_applied": [
+      ".git/",
+      ".github/",
+      ".gitlab/",
+      ".husky/",
+      "package-lock.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "Cargo.lock",
+      ".env",
+      "*.pem",
+      "*.key",
+      "*.cert",
+      "secrets/",
+      ".aws/",
+      ".ssh/",
+      "node_modules/",
+      ".venv/",
+      "venv/",
+      "dist/",
+      "build/",
+      ".next/",
+      ".vercel/",
+      "*config*",
+      "*setup*",
+      "*.config.*",
+      "docker*",
+      "main.*",
+      "index.*",
+      "app.*",
+      "server.*",
+      "cli.*",
+      "*.test.*",
+      "*.spec.*",
+      "__tests__/",
+      "tests/",
+      "cypress/"
+    ],
+    "languages_detected": [
+      "markdown",
+      "json",
+      "typescript"
+    ],
+    "frameworks_detected": [],
+    "package_managers": [
+      "npm"
+    ],
+    "monorepo": true
+  },
+  "external_knip_issues": []
+}
