@@ -4,3 +4,4 @@ package.json
 results/
 docs/.scratch-audit/
 bench/results/
+.prune/
