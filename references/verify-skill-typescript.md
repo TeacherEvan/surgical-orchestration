@@ -9,7 +9,7 @@ wrong. Two traps, one recipe.
 The skill's inline linter invokes `tsc --noEmit <file>` (no `--types node`).
 Every Node builtin then errors:
 
-```
+```text
 debrief.ts(1,25): error TS2591: Cannot find name 'node:crypto'.
 orchestrator.ts(267,14): error TS2339: Property 'emit' does not exist on type 'SubagentManager'.
 ```
