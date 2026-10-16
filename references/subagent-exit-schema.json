@@ -23,6 +23,16 @@
     "self_audit": {
       "type": "string",
       "description": "Answer to: 'Is that the best I could do following best practices?'"
+    },
+    "recommendations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional. A reviewer's own recommendations forwarded up the chain to the parent. Mirrors SubagentResult.recommendations in references/orchestrator.ts — omitting them here made this schema reject the very up-chain channel the skill documents (Pitfalls, 2026-08-13)."
+    },
+    "suggestions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional. A reviewer's own suggestions forwarded up the chain to the parent. Mirrors SubagentResult.suggestions."
     }
   }
 }

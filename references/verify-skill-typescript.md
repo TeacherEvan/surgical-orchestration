@@ -33,8 +33,9 @@ Don't `npm install` inside `references/`. The skill ships without a
 Verify in an isolated temp dir:
 
 ```bash
+SKILL_ROOT="$(git rev-parse --show-toplevel)"   # run from inside the skill checkout
 mkdir -p /tmp/soverify && cd /tmp/soverify
-cp /home/ewaldt/.hermes/skills/software-development/surgical-orchestration/references/*.ts .
+cp "$SKILL_ROOT"/references/*.ts .
 npm init -y >/dev/null 2>&1
 npm install --no-audit --no-fund typescript@5 @types/node >/dev/null 2>&1
 npx tsc --noEmit --strict --skipLibCheck --module node16 \
