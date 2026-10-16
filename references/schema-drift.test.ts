@@ -85,9 +85,9 @@ function walk(
       return;
     }
     if (s.items) {
-      data.forEach((d, i) => {
-        walk(s.items as Record<string, unknown>, d, root, `${path}[${i}]`, out);
-      });
+      for (let i = 0; i < data.length; i++) {
+        walk(s.items as Record<string, unknown>, data[i], root, `${path}[${i}]`, out);
+      }
     }
     return;
   }
