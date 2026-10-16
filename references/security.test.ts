@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import {
   assertScopeBoundary,
   resolveRealPath,
-} from './security.ts';
+} from './security.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-surgery-security-'));
 const scope = path.join(tmp, 'scope');

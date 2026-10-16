@@ -70,7 +70,16 @@
               "attempt": { "type": "integer", "minimum": 1 },
               "agentRole": {
                 "type": "string",
-                "enum": ["WORKER", "VERIFIER", "TEST_FIXER"]
+                "description": "Any AgentRole in references/orchestrator.ts (7 values). The previous 3-value enum rejected COMPOSER/CODE_REVIEWER/FRONTEND_REVIEWER/BACKEND_REVIEWER, which the Code Reviewer + Composer layer genuinely uses.",
+                "enum": [
+                  "WORKER",
+                  "VERIFIER",
+                  "TEST_FIXER",
+                  "CODE_REVIEWER",
+                  "FRONTEND_REVIEWER",
+                  "BACKEND_REVIEWER",
+                  "COMPOSER"
+                ]
               },
               "debrief": { "type": "string" },
               "hash": {
