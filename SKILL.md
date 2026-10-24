@@ -36,6 +36,7 @@ These files are part of the skill, not decoration — load the one you need:
 | `references/orchestrator.review.test.ts`, `references/security.test.ts`, `references/schema-drift.test.ts` | Behavioural suites; run them before trusting an edit to the reference implementation |
 | `references/bench/` | Accuracy / timing / token benches with fixtures |
 | `references/verify-skill-typescript.md`, `references/verify-then-sync*.md` | How to typecheck and mirror this skill without polluting `references/` |
+| `docs/plans/2026-08-13-orchestration-benchmark.md` | Parameter-sweep benchmark design (accuracy / timing / token) behind `references/bench/` |
 
 ## System Constraints & Limits
 
