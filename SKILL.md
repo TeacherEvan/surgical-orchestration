@@ -1,15 +1,15 @@
 ---
 name: surgical-orchestration
 description: "Use when coordinating multi-folder subagent builds."
-version: 1.0.0
-author: Hermes Agent (based on Gemini AI architectural review)
+version: 1.0.1
+author: "TeacherEvan, Hermes Agent (based on a Gemini AI architectural review)"
 license: MIT
 platforms: [linux, macos, windows]
-categories: [software-development]
 metadata:
   hermes:
+    category: software-development
     tags: [orchestration, subagent, multi-agent, playwright, testing, concurrency, scope-sandbox, context-compaction, loop-prevention]
-    related_skills: [code-review, test-driven-development, simplify-code, plan]
+    related_skills: [surgical-implementation, surgical-audit, surgical-pruning, surgical-investigation]
 ---
 
 # Surgical Orchestration
@@ -23,6 +23,19 @@ Surgical Orchestration is an AI-driven multi-agent workflow that decomposes a bu
 **Core Principles:**
 1. FOLLOWING BEST PRACTICES
 2. IS THAT THE BEST YOU CAN DO?
+
+## Auxiliary Resources
+
+These files are part of the skill, not decoration — load the one you need:
+
+| File | Use |
+|---|---|
+| `references/orchestrator.ts` | Reference implementation of the spawn/verify loop and job state machine |
+| `references/security.ts` | `assertScopeBoundary` + `resolveRealPath` — the realpath-based scope guard to copy into a host |
+| `references/surgical-orchestration.ts`, `references/debrief.ts` | Debrief hashing + dispatch helpers |
+| `references/orchestrator.review.test.ts`, `references/security.test.ts`, `references/schema-drift.test.ts` | Behavioural suites; run them before trusting an edit to the reference implementation |
+| `references/bench/` | Accuracy / timing / token benches with fixtures |
+| `references/verify-skill-typescript.md`, `references/verify-then-sync*.md` | How to typecheck and mirror this skill without polluting `references/` |
 
 ## System Constraints & Limits
 
