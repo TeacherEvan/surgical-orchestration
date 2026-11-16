@@ -4,15 +4,21 @@
 // child_process (the documented Playwright-equivalent for CLI automation) and
 // assert on stdout — no browser, no hanging test runner.
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const FIXTURE = resolve(__dirname, 'fixtures/mixed.plan.json');
-const CLI = resolve(__dirname, '../surgical-orchestration.ts');
+const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(BENCH_DIR, '..');
+const FIXTURE = resolve(BENCH_DIR, 'fixtures/mixed.plan.json');
+const CLI = resolve(REPO_ROOT, 'references/surgical-orchestration.ts');
+const LOCAL_TSX = resolve(REPO_ROOT, 'node_modules/.bin/tsx');
 
 function run(): Promise<{ code: number; out: string; ms: number }> {
   return new Promise((resolvePromise) => {
     const t0 = Date.now();
-    const child = spawn('npx', ['tsx', CLI, '--review', FIXTURE], { cwd: resolve(__dirname, '..') });
+    const cmd = existsSync(LOCAL_TSX) ? LOCAL_TSX : 'tsx';
+    const child = spawn(cmd, [CLI, '--review', FIXTURE], { cwd: REPO_ROOT });
     let out = '';
     child.stdout.on('data', (d) => (out += d.toString()));
     child.stderr.on('data', (d) => (out += d.toString()));

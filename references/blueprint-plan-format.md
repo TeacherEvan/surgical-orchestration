@@ -22,7 +22,7 @@ tokens and invites truncation mid-object). No markdown tables (column padding is
 pure waste). Unknown tags are ignored by readers, so the format extends without
 breaking older consumers.
 
-```
+```text
 @<TAG> <field>|<field>|...
 ```
 
@@ -89,7 +89,7 @@ file:
 ## Why each rule exists
 
 | Rule | Failure it prevents |
-|---|---|
+| --- | --- |
 | Evidence on every fact | Agent "remembers" an API that never existed and codes against it |
 | `@DONE` section | Rebuilding a shipped feature because grep missed the renamed symbol |
 | `conf=` on gaps | A low-confidence guess propagating as settled fact through three subagents |

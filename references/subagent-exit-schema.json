@@ -1,10 +1,10 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "SubagentExitPayload",
-  "description": "The JSON a Worker/Verifier/Test-Fixer emits as its final output. The orchestrator parses this and derives the canonical loop-detection hash from it.",
+  "description": "Wire JSON emitted by a Worker, Verifier, Test-Fixer, or Reviewer subagent upon exit.",
   "type": "object",
   "required": ["status", "files_modified", "debrief", "self_audit"],
-  "additionalProperties": false,
+  "unevaluatedProperties": false,
   "properties": {
     "status": {
       "type": "string",
@@ -14,25 +14,25 @@
     "files_modified": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Paths modified, relative to the allowed scope. Sorted into the hash, so order does not matter."
+      "description": "Paths modified, relative to the allowed scope."
     },
     "debrief": {
       "type": "string",
-      "description": "Concise changes, trade-offs, verification performed. Must be deterministic: no timestamps, no run ids — non-deterministic text defeats duplicate detection."
+      "description": "Deterministic summary of changes made, trade-offs, and verification results."
     },
     "self_audit": {
       "type": "string",
-      "description": "Answer to: 'Is that the best I could do following best practices?'"
+      "description": "Concrete verification checks run, scope compliance confirmation, and unresolved risks."
     },
     "recommendations": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional. A reviewer's own recommendations forwarded up the chain to the parent. Mirrors SubagentResult.recommendations in references/orchestrator.ts — omitting them here made this schema reject the very up-chain channel the skill documents (Pitfalls, 2026-08-13)."
+      "description": "Optional recommendations forwarded up the chain to the Code Reviewer / Composer."
     },
     "suggestions": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional. A reviewer's own suggestions forwarded up the chain to the parent. Mirrors SubagentResult.suggestions."
+      "description": "Optional suggestions forwarded up the chain to the Code Reviewer / Composer."
     }
   }
 }

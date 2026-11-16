@@ -1,13 +1,14 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "JobCard",
-  "description": "Orchestrator state ledger. Serialized form of the JobCard interface in references/orchestrator.ts — Map/Set become object/array on the wire.",
+  "description": "Orchestrator state ledger. Serialized form of JobCard produced by serializeJobCard() in references/types.ts.",
   "type": "object",
   "required": ["planId", "overallStatus", "jobs", "completedHashes"],
-  "additionalProperties": false,
+  "unevaluatedProperties": false,
   "properties": {
     "planId": {
       "type": "string",
+      "minLength": 1,
       "description": "Identifier for this build plan run, e.g. BUILD-1754380000000"
     },
     "overallStatus": {
@@ -17,24 +18,25 @@
     "jobs": {
       "type": "object",
       "description": "Keyed by job id (JOB-001, JOB-002, ...). One entry per parent folder.",
-      "additionalProperties": { "$ref": "#/definitions/folderJob" }
+      "additionalProperties": { "$ref": "#/$defs/folderJob" }
     },
     "completedHashes": {
       "type": "array",
-      "description": "Registry of canonical debrief hashes already seen. A repeat means the worker redid identical work; the branch escalates instead of looping.",
+      "description": "Registry of canonical debrief hashes already seen. A repeat escalates instead of looping.",
       "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
       "uniqueItems": true
     }
   },
-  "definitions": {
+  "$defs": {
     "folderJob": {
       "type": "object",
       "required": ["id", "parentFolder", "status", "attempts", "debriefHistory"],
-      "additionalProperties": false,
+      "unevaluatedProperties": false,
       "properties": {
-        "id": { "type": "string" },
+        "id": { "type": "string", "minLength": 1 },
         "parentFolder": {
           "type": "string",
+          "minLength": 1,
           "description": "The single directory this job's subagents are locked to."
         },
         "status": {
@@ -52,43 +54,44 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 3,
-          "description": "Verifier rejections so far. At MAX_REVISION_CYCLES the job escalates."
+          "description": "Verifier rejections or Worker failures so far. At MAX_REVISION_CYCLES the job escalates."
         },
         "assignedWorkerId": { "type": "string" },
         "assignedVerifierId": { "type": "string" },
         "lastVerifierFeedback": {
           "type": "string",
-          "description": "Rejection reason inlined into the next Worker prompt."
+          "description": "Failure or rejection reason inlined into the next Worker prompt."
         },
         "debriefHistory": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["attempt", "agentRole", "debrief", "hash"],
-            "additionalProperties": false,
-            "properties": {
-              "attempt": { "type": "integer", "minimum": 1 },
-              "agentRole": {
-                "type": "string",
-                "description": "Any AgentRole in references/orchestrator.ts (7 values). The previous 3-value enum rejected COMPOSER/CODE_REVIEWER/FRONTEND_REVIEWER/BACKEND_REVIEWER, which the Code Reviewer + Composer layer genuinely uses.",
-                "enum": [
-                  "WORKER",
-                  "VERIFIER",
-                  "TEST_FIXER",
-                  "CODE_REVIEWER",
-                  "FRONTEND_REVIEWER",
-                  "BACKEND_REVIEWER",
-                  "COMPOSER"
-                ]
-              },
-              "debrief": { "type": "string" },
-              "hash": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$",
-                "description": "Canonical hash computed at dispatch. Never recompute it downstream — the ledger must quote this exact value."
-              }
-            }
-          }
+          "items": { "$ref": "#/$defs/debriefEntry" }
+        }
+      }
+    },
+    "debriefEntry": {
+      "type": "object",
+      "required": ["attempt", "agentRole", "debrief", "hash"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "attempt": { "type": "integer", "minimum": 1 },
+        "agentRole": {
+          "type": "string",
+          "description": "Any AgentRole in references/types.ts (7 values).",
+          "enum": [
+            "WORKER",
+            "VERIFIER",
+            "TEST_FIXER",
+            "CODE_REVIEWER",
+            "FRONTEND_REVIEWER",
+            "BACKEND_REVIEWER",
+            "COMPOSER"
+          ]
+        },
+        "debrief": { "type": "string" },
+        "hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Canonical hash computed at dispatch. Never recompute downstream."
         }
       }
     }

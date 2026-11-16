@@ -1,4 +1,4 @@
-import type { SubagentDispatcher, SubagentResult } from '../orchestrator.js';
+import type { SubagentDispatcher, SubagentResult } from '../references/orchestrator.js';
 
 /**
  * Latency-injectable, accuracy-toggleable fake dispatcher for the

@@ -1,39 +1,29 @@
-# Security Model
+# Security Model & Threat Boundaries
 
-## Scope boundary
+`surgical-orchestration` treats LLM-generated file paths, debrief payloads, and build plans as untrusted inputs.
 
-`assertScopeBoundary(target, scope, agentId)` is the enforcement primitive for host-side file operations.
+## Guaranteed Invariants
 
-The important invariant is:
+1. **Canonical Path Containment (`references/security.ts`):**
+   - `resolveScopedPath(targetPath, allowedScope, agentId)` and `assertScopeBoundary(targetPath, allowedScope, agentId)` reject empty/whitespace strings, `\0` null bytes, dangling symlinks, any symlink segment within the scope subtree (`lstatSync` + `realpathSync`), and sibling-prefix escapes (e.g., `/workspace/job_10` vs `/workspace/job_1`) via `path.relative` containment checks.
+   - All scope violations throw deterministic errors tagged `[SCOPE_INVALID] [SECURITY_VIOLATION]`.
+   - `openScopedFile()` performs kernel-enforced `O_NOFOLLOW` opens (`fs.constants.O_NOFOLLOW`) and verifies the opened file descriptor matches a non-symlink regular file before returning bytes.
+2. **Pre-Slot Validation & Deterministic Cleanup (`references/subagent-manager.ts`):**
+   - Scope checks run **before** `activeAgents.set(...)` acquires a concurrency slot.
+   - Active slots are always released in `try/finally`, preventing deadlocked concurrency pools on `[SCOPE_INVALID]` errors or dispatcher exceptions.
+3. **Cancellation & Timeout Enforcement:**
+   - Every subagent dispatch receives a combined `AbortSignal` wired to `SUBAGENT_TIMEOUT_MS` (or `EngineOptions.timeoutMs`) and any parent `AbortController`.
+4. **Worktree Isolation for Parallel Agents:**
+   - Parallel workers must run only against disjoint `parentFolder` scopes (or isolated `git worktree` checkouts when sharing build trees).
+   - Single-scope plans execute linearly without fanning out Worker/Verifier pairs.
+5. **Failure Non-Promotion:**
+   - When a `WORKER` returns `FAILED`, `OrchestrationEngine` records the failure in `lastVerifierFeedback`, consumes the cycle budget, and short-circuits **before** spawning `VERIFIER`.
+6. **Runtime Schema Discipline:**
+   - Wire contracts (`jobcard-schema.json`, `debrief-schema.json`, `subagent-exit-schema.json`, `build-plan-schema.json`) enforce JSON Schema Draft `2020-12` with `"unevaluatedProperties": false`.
+   - `serializeJobCard()` converts `Map`/`Set` structures to plain JSON records matching `jobcard-schema.json`.
+   - CLI auto-execution in `references/surgical-orchestration.ts` is gated behind `isCliEntryPoint()`.
 
-> A path is allowed only when its fully resolved physical path is equal to the scope or is a descendant of the scope.
+## Host Runtime & TOCTOU Boundary
 
-Resolution must account for symlinks even when the target itself does not exist yet. `resolveRealPath()` therefore resolves the nearest existing ancestor and appends the not-yet-existing suffix.
-
-## Host responsibility
-
-The orchestration library cannot intercept arbitrary filesystem operations performed by an external agent runtime. The host/tool layer must call the boundary check **before every read, write, rename, delete, copy, or equivalent filesystem operation**.
-
-The orchestration engine's `allowedFolderScope` is metadata and dispatch context; it is not by itself a filesystem sandbox.
-
-## Timeout responsibility
-
-The manager supplies an `AbortSignal` and aborts it at the orchestration deadline. The actual Hermes/child-process/tool adapter must honor that signal and terminate the underlying work.
-
-A JavaScript `Promise.race()` cannot kill a running process. Treating it as process termination is unsafe and misleading.
-
-## Fail-closed result handling
-
-Only `COMPLETED` or `FAILED` result statuses are accepted. Malformed results are rejected rather than implicitly promoted.
-
-A `FAILED` worker is never sent directly to the verifier as successful work. Its attempt consumes the revision budget.
-
-## Threats still requiring host-level controls
-
-- malicious or compromised agent tools
-- shell command injection through trusted configuration fields
-- Windows junction/reparse-point edge cases
-- TOCTOU races between checking a path and opening it
-- privileged filesystem access outside the host's process sandbox
-
-For high-assurance deployments, combine these checks with OS/container sandboxing and least-privilege credentials.
+- Node userland checks plus `O_NOFOLLOW` stop symlink traversal on direct reads via `openScopedFile()`.
+- Full race isolation for arbitrary external subprocesses (compilers, test runners) still requires host OS sandboxing (`git worktree`, container filesystem mounts, or Seatbelt/Bubblewrap) enforced by the calling runtime.

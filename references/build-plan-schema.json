@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BuildPlan",
+  "description": "Input build plan parsed by OrchestrationEngine and surgical-orchestration CLI.",
+  "type": "object",
+  "required": ["description", "changes"],
+  "unevaluatedProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Concise summary of the multi-folder change plan."
+    },
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/planChange" }
+    }
+  },
+  "$defs": {
+    "planChange": {
+      "type": "object",
+      "required": ["filePath", "description", "type"],
+      "unevaluatedProperties": false,
+      "properties": {
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative path of the file to add, modify, or delete."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Intended change for this file."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["add", "modify", "delete"]
+        }
+      }
+    }
+  }
+}

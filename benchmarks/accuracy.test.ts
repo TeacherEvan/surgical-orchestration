@@ -3,32 +3,29 @@
 // Verifies the Code Reviewer layer (StandardCodeReviewer), the Orchestration
 // Engine loop guard, the Composer, and the scope-boundary security predicate.
 //
-// Run from references/:  npx tsx bench/accuracy.test.ts
+// Run from repo root: npx tsx benchmarks/accuracy.test.ts
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   StandardCodeReviewer,
   OrchestrationEngine,
   type BuildPlan,
   type SubagentDispatcher,
   type SubagentResult,
-} from '../orchestrator.js';
-import { Composer } from '../surgical-orchestration.js';
-import { assertScopeBoundary } from '../security.js';
+} from '../references/orchestrator.js';
+import { Composer } from '../references/surgical-orchestration.js';
+import { assertScopeBoundary } from '../references/security.js';
 import { makeFakeDispatcher } from './fake-dispatcher.js';
 
-// The benchmark is run from references/ (per the plan's verification command),
-// so the fixtures resolve relative to process.cwd(). We also try a
-// skill-root-relative path so the file is runnable from either location.
+const BENCH_DIR = path.dirname(fileURLToPath(import.meta.url));
+
 function loadPlan(name: string): BuildPlan {
-  const candidates = [
-    path.join(process.cwd(), 'bench', 'fixtures', `${name}.plan.json`),
-    path.join(process.cwd(), 'references', 'bench', 'fixtures', `${name}.plan.json`),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf-8')) as BuildPlan;
+  const candidate = path.join(BENCH_DIR, 'fixtures', `${name}.plan.json`);
+  if (fs.existsSync(candidate)) {
+    return JSON.parse(fs.readFileSync(candidate, 'utf-8')) as BuildPlan;
   }
-  throw new Error(`fixture not found: ${name} (tried ${candidates.join(', ')})`);
+  throw new Error(`fixture not found: ${name} (tried ${candidate})`);
 }
 
 function assert(cond: boolean, msg: string): void {

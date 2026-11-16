@@ -3,7 +3,15 @@
 // (b) a manual semaphore fan-out of size 1 vs 2 shows wall-clock scaling;
 // (c) the loop-guard escalates (no infinite loop, no 180s hang) when a dispatcher
 // returns an identical debrief every cycle.
-import { OrchestrationEngine, ORCHESTRATOR_CONFIG, SubagentManager, type BuildPlan, type SubagentDispatcher, type SubagentResult } from '../orchestrator.js';
+import {
+  OrchestrationEngine,
+  ORCHESTRATOR_CONFIG,
+  SubagentManager,
+  type BuildPlan,
+  type JobCard,
+  type SubagentDispatcher,
+  type SubagentResult,
+} from '../references/orchestrator.js';
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error('ASSERT FAILED: ' + msg);
@@ -67,12 +75,46 @@ function makeIdenticalDispatcher(): SubagentDispatcher {
 
 async function main(): Promise<void> {
   // (a) Concurrency cap enforcement (the engine's real choke point).
-  const mgr = new SubagentManager({ planId: 'x', jobs: new Map(), completedHashes: new Set(), overallStatus: 'IN_PROGRESS' } as any, makeDispatcher(0));
+  const initialCard: JobCard = {
+    planId: 'x',
+    jobs: new Map(),
+    completedHashes: new Set(),
+    overallStatus: 'IN_PROGRESS',
+  };
+  const mgr = new SubagentManager(initialCard, makeDispatcher(0));
   assert(mgr.canSpawn() === true, 'SubagentManager.canSpawn() true below cap');
   // canSpawn reads ORCHESTRATOR_CONFIG.MAX_CONCURRENCY (frozen = 2); assert the cap value is 2.
   assert(ORCHESTRATOR_CONFIG.MAX_CONCURRENCY === 2, `engine concurrency cap is 2 (got ${ORCHESTRATOR_CONFIG.MAX_CONCURRENCY})`);
 
-  // (b) Wall-clock scaling: cap 2 finishes ~2x faster than cap 1 on 4 tasks of 50ms.
+  // (b) Real OrchestrationEngine concurrent wall-clock scaling across multi-folder jobs.
+  const multiFolderPlan: BuildPlan = {
+    description: 'multi-folder timing plan',
+    changes: [
+      { filePath: 'src/svc-a/a.ts', description: 'a', type: 'add' },
+      { filePath: 'src/svc-b/b.ts', description: 'b', type: 'add' },
+      { filePath: 'src/svc-c/c.ts', description: 'c', type: 'add' },
+      { filePath: 'src/svc-d/d.ts', description: 'd', type: 'add' },
+    ],
+  };
+  const seqT0 = Date.now();
+  await new OrchestrationEngine(multiFolderPlan, makeDispatcher(35), {
+    skipTests: true,
+    maxConcurrency: 1,
+  }).run();
+  const engineSeqMs = Date.now() - seqT0;
+
+  const parT0 = Date.now();
+  await new OrchestrationEngine(multiFolderPlan, makeDispatcher(35), {
+    skipTests: true,
+    maxConcurrency: 2,
+  }).run();
+  const engineParMs = Date.now() - parT0;
+  assert(
+    engineParMs < engineSeqMs * 0.75,
+    `engine concurrency=2 (${engineParMs}ms) < concurrency=1*0.75 (${Math.round(engineSeqMs * 0.75)}ms)`,
+  );
+
+  // (b2) Wall-clock scaling: cap 2 finishes ~2x faster than cap 1 on 4 tasks of 50ms.
   const w1 = await fanout(1, 50, 4);
   const w2 = await fanout(2, 50, 4);
   console.log(`  wall: cap1=${w1}ms cap2=${w2}ms`);

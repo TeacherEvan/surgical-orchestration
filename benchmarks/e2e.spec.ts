@@ -4,14 +4,19 @@
 // Run with: npx playwright test bench/e2e.spec.ts  (global @playwright/test 1.62.1)
 import { test, expect } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const FIXTURE = resolve(__dirname, 'fixtures/mixed.plan.json');
-const CLI = resolve(__dirname, '..', 'surgical-orchestration.ts');
-const REF = resolve(__dirname, '..');
+const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
+const REF = resolve(BENCH_DIR, '..');
+const FIXTURE = resolve(BENCH_DIR, 'fixtures/mixed.plan.json');
+const CLI = resolve(REF, 'references/surgical-orchestration.ts');
+const LOCAL_TSX = resolve(REF, 'node_modules/.bin/tsx');
 
 test('surgical-orchestration --review classifies and composer emits 2+2', () => {
-  const res = spawnSync('npx', ['tsx', CLI, '--review', FIXTURE], {
+  const cmd = existsSync(LOCAL_TSX) ? LOCAL_TSX : 'tsx';
+  const res = spawnSync(cmd, [CLI, '--review', FIXTURE], {
     cwd: REF,
     encoding: 'utf-8',
     timeout: 120_000,

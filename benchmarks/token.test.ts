@@ -6,7 +6,7 @@
 //  - ledger token estimate grows monotonically with job count
 //  - verified jobs are excluded from the compacted body (only hash retained)
 // We NEVER assert absolute "token" counts — bytes/4 is a relative proxy only.
-import { ContextCompactor, type JobCard, type FolderJob } from '../orchestrator.js';
+import { ContextCompactor, type JobCard, type FolderJob } from '../references/orchestrator.js';
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error('ASSERT FAILED: ' + msg);

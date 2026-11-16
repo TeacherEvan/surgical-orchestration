@@ -1,0 +1,17 @@
+{
+  "name": "surgical-orchestration",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-folder subagent orchestration runtime, sandbox guards, and JSON Schema 2020-12 contracts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/security.test.ts && tsx tests/orchestrator.review.test.ts && tsx tests/schema-drift.test.ts && tsx tests/engine.test.ts",
+    "bench": "tsx benchmarks/accuracy.test.ts && tsx benchmarks/timing.test.ts && tsx benchmarks/token.test.ts && tsx benchmarks/run-cli.ts && tsx benchmarks/report.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

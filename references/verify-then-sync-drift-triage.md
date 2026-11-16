@@ -7,7 +7,7 @@ regenerable churn and commit only coherent, intended source.
 ## Classification table
 
 | Signal | Classification | Action |
-|--------|---------------|--------|
+| --- | --- | --- |
 | `package-lock.json` shows only deletions (`@swc/*` removals, `dev:` flags flipping) | Spurious npm version rewrites — NOT a real dep change | `git checkout -- package-lock.json` |
 | `_generated/*.d.ts` references a module not present in HEAD's version | `convex codegen` echoed a stray untracked source file | Revert generated file to HEAD; quarantine the stray source |
 | `.agents/skills/*`, `skills-lock.json`, `ai-files.state.json` modified | Output of `npx convex ai-files install` | `git checkout` the tracked ones; leave untracked `.agents/` alone (regenerable) |
@@ -28,6 +28,7 @@ git show HEAD:convex/_generated/api.d.ts | grep -c "lib/<x>"
 ```
 
 If HEAD does NOT reference it:
+
 ```bash
 git checkout -- convex/_generated/api.d.ts        # restore coherent state
 mkdir -p .scratch-orphans
@@ -41,9 +42,11 @@ committed on a non-ancestor branch, it is orphaned in this one).
 ## Final coherence gate
 
 After reconciliation:
+
 ```bash
 git status --short | grep -vE "^\?\? \.agents/"   # expect empty (or only untracked .agents/)
 git rev-list --left-right --count origin/<branch>...HEAD   # expect "0 0"
 ```
+
 Only push when both are clean. If `main` already reads `0 0`, there is nothing to
 push — the session's only job was local drift cleanup.

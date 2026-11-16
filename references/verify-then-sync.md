@@ -1,6 +1,7 @@
 # Verify-then-Sync Mode (surgical-orchestration on an already-implemented plan)
 
 ## When this applies
+
 The blueprint's JobCard lists jobs that are already present in git history
 (commits on the branch) AND/OR the working tree. The plan is not "pending work" —
 it is "done but uncommitted/unpushed." Do NOT spawn Worker/Verifier subagents in
@@ -8,12 +9,14 @@ this case; the loop guard + 2-agent concurrency machinery adds nothing and can
 escalate otherwise-healthy jobs.
 
 Detect it:
+
 - `git log --oneline` shows the feature commits already landed on the branch.
 - `git status` shows modified + untracked files that match the blueprint's file
   list (new components, policy routes, config) rather than *missing* files.
 - Running the gates (lint/build/unit/convex/e2e) comes back GREEN.
 
 ## Procedure
+
 1. **Find the real repo first.** A stale duplicate directory may exist (e.g. a
    symlinked/aliased name with a space vs a slash). The dir that contains `.git`
    is the source of truth — `git rev-parse --show-toplevel` decides, not the
@@ -43,6 +46,7 @@ Detect it:
    "bypassed" — that is expected for maintainer pushes; note it and move on.
 
 ## Why
+
 Spawning subagents to "implement" work that already exists wastes context and
 invites the loop guard to escalate healthy jobs. The orchestrator's value in
 this branch is verification + clean sync, not generation.

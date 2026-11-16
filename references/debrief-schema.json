@@ -1,16 +1,17 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "DebriefPayload",
+  "description": "Canonicalized input hashed by computeDebriefHash() in references/debrief.ts.",
   "type": "object",
   "required": ["directory", "modifiedFiles", "diffHash"],
+  "unevaluatedProperties": false,
   "properties": {
-    "directory": { "type": "string" },
+    "directory": { "type": "string", "minLength": 1 },
     "modifiedFiles": {
       "type": "array",
       "items": { "type": "string" }
     },
     "diffHash": { "type": "string" },
     "errorSignature": { "type": "string" }
-  },
-  "additionalProperties": false
+  }
 }

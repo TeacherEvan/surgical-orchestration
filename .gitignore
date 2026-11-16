@@ -1,7 +1,11 @@
 node_modules/
 package-lock.json
-package.json
 results/
+benchmarks/results/
 docs/.scratch-audit/
-bench/results/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+__pycache__/
+3.11/
 .prune/

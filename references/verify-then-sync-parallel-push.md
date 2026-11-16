@@ -1,15 +1,11 @@
----
-name: verify-then-sync parallel push
-description: "Rebase onto remote when a sibling background agent already pushed to the same branch during a verify-then-sync session."
----
-
 # Verify-then-sync: parallel session already pushed
 
 ## Trigger
+
 You run `git push origin main` (or any shared branch) during a verify-then-sync
 session and get:
 
-```
+```text
  ! [rejected]        main -> main (fetch first)
 error: failed to push some refs to '...'
 hint: Updates were rejected because the remote contains work that you do
@@ -20,12 +16,14 @@ A parallel actor — a `delegate_task` background run, a prior session, or anoth
 agent on the same machine — already pushed commits to that branch.
 
 ## Rules
+
 1. **Never force-push.** `git push --force` clobbers the parallel agent's work.
 2. **Fetch, then inspect before merging.** A blind `git pull` can silently drop
    your unique contributions or produce a messy merge.
 3. **Rebase your commits onto the remote, keeping only what is uniquely yours.**
 
 ## Recipe
+
 ```bash
 # 1. See what the remote has that you don't
 git fetch origin
@@ -54,6 +52,7 @@ git push origin main
 ```
 
 ## Real case (2026-08-11, WorkFORCE repo)
+
 A background `delegate_task` run (`bg_083426_9fc858`) had pushed 2 commits to
 `origin/main` (Providers architecture + full CI repair) while this session held
 an unpushed commit with duplicate source fixes + a unique CI test stub + corrected
@@ -65,6 +64,7 @@ the `@/convex/_generated/react` stub alias (tests need the stub), and kept the
 plan/blueprint docs + stub file. Pushed clean; lint + test green.
 
 ## Pitfalls (quarantine, don't commit)
+
 - A stray file a parallel agent created at repo root (e.g. a duplicate
   `convex.config.ts`) may be an ORPHAN. Quarantine it
   (`mkdir -p .scratch-orphans && mv <file> .scratch-orphans/<file>.disabled`), do
