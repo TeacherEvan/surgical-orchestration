@@ -12,7 +12,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dryRunDispatcher, hermesDispatcher, parseSubagentResult } from './hermes-adapter.js';
+import { dryRunDispatcher, hermesDispatcher } from './hermes-adapter.js';
 import {
   Composer,
   ORCHESTRATOR_CONFIG,
@@ -23,7 +23,12 @@ import {
   type SubagentDispatcher,
 } from './orchestrator.js';
 
-export { Composer, dryRunDispatcher, hermesDispatcher, parseSubagentResult };
+export {
+  dryRunDispatcher,
+  hermesDispatcher,
+  parseSubagentResult,
+} from './hermes-adapter.js';
+export { Composer } from './orchestrator.js';
 
 const SAMPLE_PLAN: BuildPlan = {
   description: 'Sample build plan for Surgical Orchestration',
@@ -85,7 +90,7 @@ function printHelp(): void {
   console.log(`  COMPACTION_TOKEN_THRESHOLD: ${ORCHESTRATOR_CONFIG.COMPACTION_TOKEN_THRESHOLD}`);
 }
 
-export async function runReview(plan: BuildPlan, dispatch: SubagentDispatcher): Promise<number> {
+async function runReview(plan: BuildPlan, dispatch: SubagentDispatcher): Promise<number> {
   const reviewer = new StandardCodeReviewer(plan, dispatch);
   const outcome: CodeReviewOutcome = await reviewer.run();
 

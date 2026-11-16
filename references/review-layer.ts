@@ -1,7 +1,7 @@
 import { defaultClassifyFile, type FileLane } from './classifier.js';
 import type { BuildPlan, SubagentDispatcher, SubagentResult } from './types.js';
 
-export type { FileLane };
+export type { FileLane } from './classifier.js';
 
 export interface ClassifiedFile {
   filePath: string;

@@ -74,7 +74,7 @@ export function findProjectRoot(plan: BuildPlan): string {
   return fs.existsSync(path.join(root, 'package.json')) ? root : process.cwd();
 }
 
-export function readIfExists(filePath: string): string | null {
+function readIfExists(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
@@ -82,7 +82,7 @@ export function readIfExists(filePath: string): string | null {
   }
 }
 
-export function readArchitectureDiagram(projectRoot: string): string | null {
+function readArchitectureDiagram(projectRoot: string): string | null {
   for (const candidate of [
     'ARCHITECTURE.md',
     'docs/architecture.md',
@@ -112,7 +112,7 @@ export function buildTestFixerContext(projectRoot: string, testResult: TestResul
   ].join('\n');
 }
 
-export function extractFailingSpecs(output: string): string[] {
+function extractFailingSpecs(output: string): string[] {
   const specs = new Set<string>();
   const patterns = [/([\w/.-]+\.spec\.(ts|js)):?\d*/g, /([\w/.-]+\.test\.(ts|js)):?\d*/g];
   for (const pattern of patterns) {
